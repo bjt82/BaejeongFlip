@@ -1,0 +1,5 @@
+# Windows 배치 파일과 설치 안내문은 CP949 + CRLF 그대로 보존
+*.bat -text
+installer/*.txt -text
+*.png binary
+*.gif binary
