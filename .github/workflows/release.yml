@@ -1,0 +1,84 @@
+# 배정플립 자동 릴리스
+# main 에 소스·설치 파일 변경이 올라오면, 소스에 적힌 버전의 릴리스가 없을 때만
+# Windows 에서 빌드 → 공개용 zip 생성 → v<버전> 태그와 릴리스를 만듭니다.
+# 새 버전을 내려면 src/BaejeongFlip.cs 의 AssemblyInformationalVersion 과 Settings.Version 을 함께 올리세요.
+name: 릴리스
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "installer/**"
+      - ".github/workflows/release.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 버전 읽기
+        id: ver
+        run: |
+          V=$(sed -n 's/.*AssemblyInformationalVersion("\([^"]*\)").*/\1/p' src/BaejeongFlip.cs)
+          C=$(sed -n 's/.*Version = "\([^"]*\)".*/\1/p' src/BaejeongFlip.cs | head -1)
+          if [ -z "$V" ] || [ "$V" != "$C" ]; then
+            echo "::error::버전이 서로 다릅니다: AssemblyInformationalVersion=$V, Settings.Version=$C"
+            exit 1
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          if gh release view "v$V" >/dev/null 2>&1; then
+            echo "v$V 릴리스가 이미 있어서 건너뜁니다."
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 빌드 (.NET Framework 4 컴파일러)
+        if: steps.ver.outputs.exists == 'false'
+        shell: cmd
+        run: |
+          if not exist release mkdir release
+          "%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /target:winexe /platform:anycpu /codepage:65001 /r:System.Web.Extensions.dll /r:System.Security.dll /out:release\BaejeongFlip.scr src\BaejeongFlip.cs src\Info.cs
+
+      - name: 설치 zip 만들기 (인증키 없음)
+        if: steps.ver.outputs.exists == 'false'
+        run: |
+          python - "${{ steps.ver.outputs.version }}" <<'PY'
+          import sys, zipfile
+          ver = sys.argv[1]
+          files = [("release/BaejeongFlip.scr", "BaejeongFlip.scr"),
+                   ("installer/설치하기.bat", "설치하기.bat"),
+                   ("installer/제거하기.bat", "제거하기.bat"),
+                   ("installer/설치방법.txt", "설치방법.txt")]
+          with zipfile.ZipFile(f"release/BaejeongFlip-{ver}.zip", "w", zipfile.ZIP_DEFLATED) as z:
+              for src, name in files:
+                  z.write(src, name)
+          PY
+
+      - name: 태그와 릴리스 만들기
+        if: steps.ver.outputs.exists == 'false'
+        run: |
+          V="${{ steps.ver.outputs.version }}"
+          cat > notes.md <<NOTES
+          ## 설치
+          1. 아래 \`BaejeongFlip-$V.zip\`을 받아 압축을 풉니다.
+          2. \`설치하기.bat\`를 더블클릭하고 대기 시간(분)을 입력합니다.
+
+          NEIS 인증키는 들어 있지 않습니다. 설정 창의 인증키 칸에 넣거나, zip에 \`neis-key.txt\`를 함께 넣어 설치하세요.
+          NOTES
+          gh release create "v$V" "release/BaejeongFlip-$V.zip" \
+            --target "${{ github.sha }}" \
+            --title "배정플립 $V" \
+            --notes-file notes.md \
+            --generate-notes

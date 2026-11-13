@@ -71,12 +71,22 @@ Windows 화면보호기 설정 → **설정** 버튼에서 바꿉니다.
 
 Linux에서 빌드할 때는 Mono 자체 라이브러리가 아니라 반드시 .NET Framework 4.8 참조 어셈블리로 컴파일해야 합니다. Mono에만 있는 메서드가 섞이면 Windows에서 "메서드를 찾을 수 없습니다" 오류가 납니다.
 
+## 새 버전 내기 (자동 릴리스)
+
+1. `src/BaejeongFlip.cs`에서 두 곳의 버전을 함께 올립니다.
+   - `[assembly: AssemblyInformationalVersion("1.0")]`
+   - `public const string AppName = "배정플립", Version = "1.0";`
+   - 필요하면 `AssemblyVersion`, `AssemblyFileVersion`(예: `1.1.0.0`)도 맞춥니다.
+2. `main`에 올리면 GitHub Actions(`.github/workflows/release.yml`)가 Windows에서 빌드하고, `v1.1` 같은 태그와 공개용 zip이 붙은 릴리스를 만듭니다.
+3. 이미 같은 버전의 릴리스가 있으면 아무것도 하지 않습니다. Actions 탭에서 **릴리스** → **Run workflow**로 직접 실행할 수도 있습니다.
+
 ## 파일 구성
 
 ```
 src/BaejeongFlip.cs   화면 그리기, 화면보호기 창, 설정 창, 설치/제거 명령
 src/Info.cs           학사일정·급식(NEIS), 날씨(Open-Meteo, 기상청) 받아 오기와 저장
 installer/            설치하기.bat, 제거하기.bat, 설치방법.txt (Windows 한글 CP949)
+.github/workflows/    자동 릴리스 (버전이 바뀌면 빌드·태그·릴리스)
 docs/screenshots/     화면 예시
 ```
 
