@@ -32,8 +32,9 @@ if errorlevel 1 (
   exit /b 1
 )
 
-rem NEIS 인증키 파일이 함께 있으면 복사 (설정 창의 인증키 칸이 비어 있을 때 사용)
+rem NEIS·기상청 인증키 파일이 함께 있으면 복사 (설정 창의 인증키 칸이 비어 있을 때 사용)
 if exist "%~dp0neis-key.txt" copy /y "%~dp0neis-key.txt" "%DEST%\neis-key.txt" >nul
+if exist "%~dp0kma-key.txt" copy /y "%~dp0kma-key.txt" "%DEST%\kma-key.txt" >nul
 
 rem 예전 이름(플립시계, FlipClock)으로 설치된 파일 정리
 if exist "%LOCALAPPDATA%\FlipClock" rmdir /s /q "%LOCALAPPDATA%\FlipClock" >nul 2>&1

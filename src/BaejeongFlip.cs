@@ -97,13 +97,18 @@ namespace BaejeongFlip
                 }
             }
             catch { }
-            // 인증키가 비어 있으면 설치 폴더의 neis-key.txt 를 한 번 읽어 암호화 저장하고, 파일은 지움
-            if (string.IsNullOrEmpty(s.NeisKey))
+            // 인증키가 비어 있으면 설치 폴더의 키 파일을 한 번 읽어 암호화 저장하고, 파일은 지움
+            //   neis-key.txt : NEIS 교육정보 개방 포털 인증키
+            //   kma-key.txt  : 공공데이터포털 기상청 단기예보 인증키 (함께 설치되면 날씨 서버를 기상청으로)
+            string nk = ReadKeyFile("neis-key.txt");
+            if (string.IsNullOrEmpty(s.NeisKey) && nk.Length > 0) { s.NeisKey = nk; StoreSecret("NeisKeyEnc", "NeisKey", nk); }
+            string kk = ReadKeyFile("kma-key.txt");
+            if (string.IsNullOrEmpty(s.KmaKey) && kk.Length > 0)
             {
-                string fk = ReadKeyFile(true);
-                if (fk.Length > 0) { s.NeisKey = fk; StoreSecret("NeisKeyEnc", "NeisKey", fk); }
+                s.KmaKey = kk; StoreSecret("KmaKeyEnc", "KmaKey", kk);
+                s.WeatherSource = 1;
+                try { using (var k = Registry.CurrentUser.CreateSubKey(Key)) k.SetValue("WeatherSource", 1, RegistryValueKind.DWord); } catch { }
             }
-            else ReadKeyFile(true);                      // 이미 키가 있으면 남은 파일만 정리
             return s;
         }
 
@@ -152,16 +157,17 @@ namespace BaejeongFlip
             catch { }
         }
 
-        static string ReadKeyFile(bool deleteAfter)
+        // 설치 폴더의 키 파일을 읽고 바로 지움 (이미 키가 저장돼 있어도 남은 파일은 정리)
+        static string ReadKeyFile(string name)
         {
             try
             {
                 string dir = System.IO.Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-                string f = System.IO.Path.Combine(dir, "neis-key.txt");
+                string f = System.IO.Path.Combine(dir, name);
                 if (System.IO.File.Exists(f))
                 {
                     string key = System.IO.File.ReadAllText(f).Trim();
-                    if (deleteAfter) try { System.IO.File.Delete(f); } catch { }
+                    try { System.IO.File.Delete(f); } catch { }
                     return key;
                 }
             }

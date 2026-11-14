@@ -455,6 +455,8 @@ namespace BaejeongFlip
             d.Temp = tmpNow;
             d.TMin = !double.IsNaN(tmn) ? tmn : (tmpMin != double.MaxValue ? Math.Min(tmpMin, tmpNow) : tmpNow);
             d.TMax = !double.IsNaN(tmx) ? tmx : (tmpMax != double.MinValue ? Math.Max(tmpMax, tmpNow) : tmpNow);
+            d.TMin = Math.Min(d.TMin, d.Temp);            // 예보 최저·최고보다 현재 기온이 벗어나면 현재 기온 반영
+            d.TMax = Math.Max(d.TMax, d.Temp);
             d.Pop = pop;
             if (pty == 1 || pty == 5) { d.Sky = "비"; d.Icon = "rain"; }
             else if (pty == 2 || pty == 6) { d.Sky = "비 또는 눈"; d.Icon = "rain"; }

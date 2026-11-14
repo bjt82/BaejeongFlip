@@ -1,6 +1,6 @@
 ﻿; 배정플립 설치 파일 (NSIS 3, 유니코드)
 ; 공개용:  makensis -DVERSION=1.0 -DSCR=<BaejeongFlip.scr> -DOUTFILE=<출력.exe> installer/setup.nsi
-; 학교용:  위 명령에 -DKEYFILE=<neis-key.txt> 추가 → 인증키가 설치 파일 안에 들어감 (외부 공개 금지)
+; 학교용:  위 명령에 -DKEYFILE=<neis-key.txt> -DKMAKEYFILE=<kma-key.txt> 추가 → 인증키가 설치 파일 안에 들어감 (외부 공개 금지)
 ; build.sh setup 으로 두 가지를 한 번에 만들 수 있습니다.
 
 Unicode true
@@ -51,7 +51,7 @@ Var TimeoutList
 !define MUI_ABORTWARNING
 !define MUI_WELCOMEPAGE_TITLE "${APPNAME} ${VERSION} 설치"
 !ifdef KEYFILE
-  !define MUI_WELCOMEPAGE_TEXT "배정고등학교 플립시계 화면보호기를 설치합니다.$\r$\n$\r$\n시계, 날짜, 학사일정, 급식, 날씨를 보여 줍니다. 학교 정보 인증키가 함께 설치되므로 따로 입력할 필요가 없습니다.$\r$\n$\r$\n관리자 권한 없이 이 사용자 계정에만 설치됩니다."
+  !define MUI_WELCOMEPAGE_TEXT "배정고등학교 플립시계 화면보호기를 설치합니다.$\r$\n$\r$\n시계, 날짜, 학사일정, 급식, 날씨를 보여 줍니다. 학교 정보(NEIS)와 기상청 인증키가 함께 설치되므로 따로 입력할 필요가 없습니다.$\r$\n$\r$\n관리자 권한 없이 이 사용자 계정에만 설치됩니다."
 !else
   !define MUI_WELCOMEPAGE_TEXT "배정고등학교 플립시계 화면보호기를 설치합니다.$\r$\n$\r$\n시계, 날짜, 학사일정, 급식, 날씨를 보여 줍니다. 학교 정보(NEIS) 인증키는 설치 후 화면보호기 설정 창에서 넣을 수 있습니다.$\r$\n$\r$\n관리자 권한 없이 이 사용자 계정에만 설치됩니다."
 !endif
@@ -123,6 +123,9 @@ Section "Install"
   File "/oname=BaejeongFlip.scr" "${SCR}"
 !ifdef KEYFILE
   File "/oname=neis-key.txt" "${KEYFILE}"
+!endif
+!ifdef KMAKEYFILE
+  File "/oname=kma-key.txt" "${KMAKEYFILE}"
 !endif
 
   ; 예전 이름(플립시계)으로 설치된 파일 정리
