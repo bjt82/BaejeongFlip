@@ -101,7 +101,7 @@ namespace BaejeongFlip
                 {
                     try
                     {
-                        if (c.WeatherSource == 1) FetchKma(c, d); else FetchOpenMeteo(c, d);
+                        FetchWeatherWithFallback(c, d, report);
                         d.HasWeather = true; d.WeatherAt = stamp; d.WeatherKey = wkey; changed = true;
                         report.AppendLine(string.Format("날씨 ({0}): {1:0.#}° {2}, 최저 {3:0}° / 최고 {4:0}°{5}",
                             d.WeatherSource, d.Temp, d.Sky, d.TMin, d.TMax, d.Pop >= 0 ? ", 강수확률 " + d.Pop + "%" : ""));
@@ -144,6 +144,26 @@ namespace BaejeongFlip
 
             if (changed) Publish(d);
             return report.Length == 0 ? "표시할 정보가 선택되지 않았습니다." : report.ToString().TrimEnd();
+        }
+
+        // 고른 날씨 서버가 실패하면 다른 서버로 한 번 더 시도.
+        // 학교망에서 해외 서버(Open-Meteo)가 막혀도, 기상청 인증키가 있으면 기상청으로 받음
+        static void FetchWeatherWithFallback(Settings c, InfoData d, StringBuilder report)
+        {
+            bool kmaFirst = c.WeatherSource == 1;
+            bool hasKma = !string.IsNullOrEmpty((c.KmaKey ?? "").Trim());
+            try
+            {
+                if (kmaFirst) FetchKma(c, d); else FetchOpenMeteo(c, d);
+            }
+            catch (Exception first)
+            {
+                if (!kmaFirst && !hasKma)
+                    throw new Exception(Short(first) + " (Open-Meteo 서버에 연결하지 못했습니다. 학교망에서 막혔을 수 있으니 기상청 인증키를 넣으면 기상청으로 자동 전환합니다.)");
+                report.AppendLine("날씨: " + (kmaFirst ? "기상청" : "Open-Meteo") + " 실패 (" + Short(first) + "), " +
+                                  (kmaFirst ? "Open-Meteo" : "기상청") + "으로 다시 시도");
+                if (kmaFirst) FetchOpenMeteo(c, d); else FetchKma(c, d);
+            }
         }
 
         static string Short(Exception ex)
