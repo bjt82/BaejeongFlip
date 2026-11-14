@@ -321,6 +321,33 @@ namespace BaejeongFlip
             return list.OrderBy(x => x.Date).ThenBy(x => KindOrder(x.Kind)).ToList();
         }
 
+        // ───────── 학교 찾기 (NEIS 학교기본정보) ─────────
+        public class SchoolHit
+        {
+            public string Name, AtptCode, AtptName, Code, Address, Kind;
+        }
+
+        /// 학교 이름(일부)으로 찾기. 인증키가 없으면 최대 5건
+        public static List<SchoolHit> SearchSchools(string name, string neisKey)
+        {
+            string key = (neisKey ?? "").Trim();
+            string url = "https://open.neis.go.kr/hub/schoolInfo?Type=json&pIndex=1&pSize=" + (key.Length > 0 ? 100 : 5) +
+                         "&SCHUL_NM=" + Uri.EscapeDataString(name.Trim()) +
+                         (key.Length > 0 ? "&KEY=" + Uri.EscapeDataString(key) : "");
+            var list = new List<SchoolHit>();
+            foreach (var r in NeisRows("schoolInfo", url))
+                list.Add(new SchoolHit
+                {
+                    Name = (J(r, "SCHUL_NM") as string) ?? "",
+                    AtptCode = (J(r, "ATPT_OFCDC_SC_CODE") as string) ?? "",
+                    AtptName = (J(r, "ATPT_OFCDC_SC_NM") as string) ?? "",
+                    Code = (J(r, "SD_SCHUL_CODE") as string) ?? "",
+                    Address = (((J(r, "ORG_RDNMA") as string) ?? "") + " " + ((J(r, "ORG_RDNDA") as string) ?? "")).Trim(),
+                    Kind = (J(r, "SCHUL_KND_SC_NM") as string) ?? ""
+                });
+            return list;
+        }
+
         public static int KindOrder(string k) { return k == "조식" ? 0 : k == "중식" ? 1 : k == "석식" ? 2 : 3; }
 
         // ───────── 날씨: Open-Meteo (인증키 없음) ─────────

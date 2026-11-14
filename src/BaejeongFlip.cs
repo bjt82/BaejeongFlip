@@ -17,16 +17,16 @@ using Microsoft.Win32;
 [assembly: AssemblyDescription("배정고등학교 플립시계 화면보호기")]
 [assembly: AssemblyProduct("배정플립")]
 [assembly: AssemblyCompany("배정고등학교 교육연구부")]
-[assembly: AssemblyVersion("1.2.0.0")]
-[assembly: AssemblyFileVersion("1.2.0.0")]
-[assembly: AssemblyInformationalVersion("1.2")]
+[assembly: AssemblyVersion("1.3.0.0")]
+[assembly: AssemblyFileVersion("1.3.0.0")]
+[assembly: AssemblyInformationalVersion("1.3")]
 
 namespace BaejeongFlip
 {
     // ───────────────────────── 설정 ─────────────────────────
     class Settings
     {
-        public const string AppName = "배정플립", Version = "1.2";
+        public const string AppName = "배정플립", Version = "1.3";
         const string Key = @"Software\BaejeongFlip";
         const string OldKey = @"Software\FlipClockSaver";     // 이름을 바꾸기 전(플립시계) 설정 위치
         public bool H24 = true, ShowSeconds = false, ShowDate = true;
@@ -1641,7 +1641,7 @@ namespace BaejeongFlip
             gCorner.Controls.AddRange(new Control[] {
                 L("학교", 16, 26), tL = T(cfg.LeftText, 60, 26, 170), L("부서", 250, 26), tR = T(cfg.RightText, 294, 26, 186) });
 
-            Button bNeisClear, bKmaClear;
+            Button bNeisClear, bKmaClear, bFind;
             var gSchool = new GroupBox { Text = "학교 정보 · NEIS 교육정보 개방 포털", Left = 520, Top = 8, Width = 496, Height = 218 };
             cRot = new ComboBox { Left = 120, Top = 80, Width = 90, DropDownStyle = ComboBoxStyle.DropDownList };
             cSpeed = new ComboBox { Left = 350, Top = 80, Width = 130, DropDownStyle = ComboBoxStyle.DropDownList };
@@ -1658,6 +1658,7 @@ namespace BaejeongFlip
                 L("넘김 속도", 270, 80), cSpeed,
                 L("교육청 코드", 16, 114), tAtpt = T(cfg.AtptCode, 110, 114, 60),
                 L("학교 코드", 196, 114), tSchool = T(cfg.SchoolCode, 270, 114, 90),
+                bFind = new Button { Text = "학교 찾기", Left = 382, Top = 112, Width = 100, Height = 26 },
                 L("인증키", 16, 148), tNeis = SecretBox(110, 148, 220),
                 lNeisState = new Label { Text = StateText(cfg.NeisKey), Left = 338, Top = 151, AutoSize = true, ForeColor = SystemColors.GrayText },
                 bNeisClear = new Button { Text = "지우기", Left = 424, Top = 146, Width = 58, Height = 26 },
@@ -1707,6 +1708,24 @@ namespace BaejeongFlip
             var cancel = new Button { Text = "취소", Left = 931, Top = 502, Width = 85, Height = 34, DialogResult = DialogResult.Cancel };
             var hint = new Label { Text = "선택한 정보를 지금 받아 보고 결과를 보여 줍니다.", Left = 170, Top = 511, AutoSize = true, ForeColor = SystemColors.GrayText };
 
+            bFind.Click += (s, e) =>
+            {
+                string key = tNeis.Text.Trim().Length > 0 ? tNeis.Text.Trim() : (clearNeis ? "" : cfg.NeisKey);
+                string guess = tL.Text.Trim();
+                using (var f = new SchoolSearchForm(key, guess == "배정고등학교" ? "" : guess))
+                {
+                    if (f.ShowDialog(this) != DialogResult.OK || f.Picked == null) return;
+                    var hit = f.Picked;
+                    tAtpt.Text = hit.AtptCode;
+                    tSchool.Text = hit.Code;
+                    string oldName = tL.Text.Trim();
+                    if (oldName.Length == 0 || oldName == "배정고등학교") tL.Text = hit.Name;
+                    MessageBox.Show(this, hit.Name + "(" + hit.AtptName + ")로 설정했습니다.\n\n" +
+                        "날씨 위치는 자동으로 바뀌지 않습니다. 주소를 참고해 위도·경도를 우리 학교 위치로 바꿔 주세요.\n" +
+                        "주소: " + hit.Address + "\n(구글 지도에서 학교를 오른쪽 클릭하면 위도, 경도가 나옵니다.)",
+                        "학교 찾기", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+            };
             bNeisClear.Click += (s, e) => { clearNeis = true; tNeis.Text = ""; lNeisState.Text = "지움 (확인을 누르면 삭제)"; };
             bKmaClear.Click += (s, e) => { clearKma = true; tKma.Text = ""; lKmaState.Text = "지움 (확인을 누르면 삭제)"; };
             tNeis.TextChanged += (s, e) => { if (tNeis.Text.Length > 0) { clearNeis = false; lNeisState.Text = "새 키로 교체"; } };
@@ -1714,7 +1733,7 @@ namespace BaejeongFlip
 
             EventHandler sync = (s, e) =>
             {
-                tNeis.Enabled = bNeisClear.Enabled = tAtpt.Enabled = tSchool.Enabled = cSched.Checked || cMeal.Checked;
+                tNeis.Enabled = bNeisClear.Enabled = tAtpt.Enabled = tSchool.Enabled = bFind.Enabled = cSched.Checked || cMeal.Checked;
                 cRot.Enabled = cSpeed.Enabled = cSched.Checked;
                 rMeteo.Enabled = rKma.Enabled = tLat.Enabled = tLon.Enabled = cWeather.Checked;
                 tKma.Enabled = bKmaClear.Enabled = cWeather.Checked && rKma.Checked;
@@ -1764,6 +1783,86 @@ namespace BaejeongFlip
         }
     }
 
+    // ───────────────────────── 학교 찾기 창 ─────────────────────────
+    class SchoolSearchForm : Form
+    {
+        public InfoService.SchoolHit Picked;
+        readonly string neisKey;
+        readonly TextBox tName;
+        readonly ListView list;
+        readonly Label status;
+        readonly Button ok;
+
+        public SchoolSearchForm(string neisKey, string initial)
+        {
+            this.neisKey = neisKey;
+            Text = "학교 찾기";
+            Font = new Font("Malgun Gothic", 9.5f);
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            MaximizeBox = MinimizeBox = false;
+            StartPosition = FormStartPosition.CenterParent;
+            AutoScaleMode = AutoScaleMode.Dpi;
+            ClientSize = new Size(640, 400);
+
+            var lbl = new Label { Text = "학교 이름", Left = 14, Top = 17, AutoSize = true };
+            tName = new TextBox { Left = 90, Top = 14, Width = 420, Text = initial };
+            var find = new Button { Text = "찾기", Left = 520, Top = 12, Width = 106, Height = 28 };
+            list = new ListView { Left = 14, Top = 50, Width = 612, Height = 270, View = View.Details, FullRowSelect = true, MultiSelect = false, HideSelection = false };
+            list.Columns.Add("학교", 170);
+            list.Columns.Add("교육청", 150);
+            list.Columns.Add("주소", 270);
+            status = new Label { Left = 14, Top = 328, Width = 612, Height = 22, ForeColor = SystemColors.GrayText,
+                                 Text = "학교 이름의 일부만 입력해도 됩니다. 예: 배정고" };
+            ok = new Button { Text = "선택", Left = 448, Top = 356, Width = 85, Height = 32, Enabled = false };
+            var cancel = new Button { Text = "취소", Left = 541, Top = 356, Width = 85, Height = 32, DialogResult = DialogResult.Cancel };
+
+            find.Click += (s, e) => Search();
+            tName.KeyDown += (s, e) => { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; Search(); } };
+            list.SelectedIndexChanged += (s, e) => ok.Enabled = list.SelectedItems.Count > 0;
+            list.DoubleClick += (s, e) => Pick();
+            ok.Click += (s, e) => Pick();
+            Controls.AddRange(new Control[] { lbl, tName, find, list, status, ok, cancel });
+            CancelButton = cancel;
+            Shown += (s, e) => { tName.Focus(); if (tName.Text.Length > 0) Search(); };
+        }
+
+        void Search()
+        {
+            string name = tName.Text.Trim();
+            if (name.Length < 2) { status.Text = "학교 이름을 두 글자 이상 입력하세요."; return; }
+            list.Items.Clear();
+            ok.Enabled = false;
+            Cursor = Cursors.WaitCursor;
+            try
+            {
+                var hits = InfoService.SearchSchools(name, neisKey);
+                foreach (var h in hits)
+                {
+                    var it = new ListViewItem(new[] { h.Name, h.AtptName, h.Address }) { Tag = h };
+                    list.Items.Add(it);
+                }
+                if (hits.Count == 0) status.Text = "찾은 학교가 없습니다. 이름을 다르게 입력해 보세요. (예: \"배정고등학교\" 대신 \"배정고\")";
+                else
+                {
+                    status.Text = hits.Count + "곳을 찾았습니다. 학교를 고르고 [선택]을 누르세요." +
+                                  (string.IsNullOrEmpty(neisKey) ? " (인증키가 없어 최대 5곳까지만 보여 줍니다)" : "");
+                    list.Items[0].Selected = true;
+                    list.Focus();
+                }
+            }
+            catch (Exception ex) { status.Text = "찾지 못했습니다: " + ex.Message; }
+            finally { Cursor = Cursors.Default; }
+        }
+
+        void Pick()
+        {
+            if (list.SelectedItems.Count == 0) return;
+            Picked = list.SelectedItems[0].Tag as InfoService.SchoolHit;
+            DialogResult = DialogResult.OK;
+            Close();
+        }
+    }
+
     // ───────────────────────── 진입점 ─────────────────────────
     static class Program
     {
@@ -1787,6 +1886,20 @@ namespace BaejeongFlip
             if (mode == "/u") { Unregister(); return; }
 
             // 진단용: 설정대로 정보를 받아 결과 출력  (/fetch)
+            // 진단용: 학교 이름으로 찾기 결과 출력  (/query 이름)
+            if (mode == "/q" && args.Length > 2 && args[2] == "gui")      // 진단용: 학교 찾기 창만 띄움
+            {
+                Application.EnableVisualStyles();
+                using (var f = new SchoolSearchForm(Settings.Load().NeisKey, arg ?? "")) f.ShowDialog();
+                return;
+            }
+            if (mode == "/q")
+            {
+                foreach (var h in InfoService.SearchSchools(arg ?? "", Settings.Load().NeisKey))
+                    Console.WriteLine(h.Name + " | " + h.AtptName + " " + h.AtptCode + " | " + h.Code + " | " + h.Address);
+                return;
+            }
+
             if (mode == "/f")
             {
                 InfoService.LoadCache();
