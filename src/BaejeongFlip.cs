@@ -991,7 +991,7 @@ namespace BaejeongFlip
             bool wOn = v.Weather != null, sOn = v.SchedLine1 != null, mOn = v.MealMenu != null, dOn = Cfg.ShowDate;
             // 위·아래 모서리 문구 자리는 비워 둠 (모서리 문구가 10분마다 위↔아래로 옮겨 다니므로)
             float cornerBand = Cfg.LeftText.Length + Cfg.RightText.Length > 0
-                ? Math.Max(8f, Math.Min(W, Hs) * 0.035f) + Math.Max(6f, Math.Min(40f, Hs * 0.02f)) * 1.6f : Hs * 0.03f;
+                ? Math.Max(8f, Math.Min(W, Hs) * 0.035f) + CornerCapH(W, Hs) * 1.6f : Hs * 0.03f;
             float availW = W * 0.94f, availH = Hs - 2 * cornerBand;
             float r = portrait ? 3.1f : 2.3f;          // 시계 카드 높이 ÷ 날짜 카드 높이
             const float U = 100f;
@@ -1429,11 +1429,15 @@ namespace BaejeongFlip
             DrawCard(g, new RectangleF(dx, dy, wordW, dh), wd, "word", Accent, now);
         }
 
+        // 모서리 문구(학교·부서) 글자 높이: 화면의 짧은 변 기준으로 고정.
+        // 기본 화면·큰 화면, 가로·세로 어느 경우에도 기본 화면(가로)과 같은 크기 (1080p 에서 약 22px)
+        static float CornerCapH(float W, float Hs) { return Math.Max(6f, Math.Min(40f, Math.Min(W, Hs) * 0.02f)); }
+
         // ── 모서리 문구: 10분마다 자리를 바꿔 번인 방지. 사진 배경일 때는 위쪽 두 모서리만 쓰고 그림자를 넣음 ──
         void DrawCorners(Graphics g, Rectangle bounds, long now, bool onPhoto)
         {
             float W = bounds.Width, Hs = bounds.Height;
-            float capH = Math.Max(6f, Math.Min(40f, Hs * 0.02f));
+            float capH = CornerCapH(W, Hs);
             float margin = Math.Max(8f, Math.Min(W, Hs) * 0.035f);
             float cdx = Math.Abs(drift.X) * W * 0.3f, cdy = Math.Abs(drift.Y) * Hs * 0.3f; // 자리 안에서도 조금씩 이동
             int layout; float alpha;
