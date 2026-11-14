@@ -28,6 +28,16 @@
 
 ## 설치
 
+### 설치 파일로 설치 (Setup.exe)
+
+`BaejeongFlip-1.0-Setup.exe`를 실행하면 설치 마법사가 뜹니다. 대기 시간을 고르면 화면보호기로 지정되고, Windows **설정 → 앱**에 "배정플립"으로 등록되어 그곳에서 제거할 수 있습니다. 관리자 권한은 필요 없습니다.
+
+학교용 설치 파일(`BaejeongFlip-1.0-학교용-Setup.exe`)은 NEIS 인증키가 함께 들어 있어 설치만 하면 바로 작동합니다. 인증키가 들어 있으므로 GitHub에는 올리지 않고 교내에서만 나눠 씁니다. 설치 파일은 7-Zip 같은 압축 프로그램으로 열면 안의 키 파일을 꺼낼 수 있으니, 학교 밖으로 나가지 않게 관리하세요.
+
+설치 파일은 `./build.sh setup`으로 만듭니다(NSIS 필요). 저장소 폴더에 `neis-key.txt`가 있으면 학교용도 함께 만들어집니다.
+
+### zip으로 설치
+
 1. [Releases](../../releases)에서 `BaejeongFlip-1.0.zip`을 받아 압축을 풉니다.
 2. `설치하기.bat`를 더블클릭하고, 대기 시간(분)을 입력합니다.
 3. 관리자 권한은 필요 없습니다. `%LOCALAPPDATA%\BaejeongFlip`에 설치되고 바로 화면보호기로 지정됩니다.
@@ -66,6 +76,7 @@ Windows 화면보호기 설정 → **설정** 버튼에서 바꿉니다.
 |---|---|
 | Windows | `build.bat` 실행 (Windows에 기본으로 있는 .NET Framework 4 컴파일러 사용) |
 | Linux (Mono) | `./build.sh zip` (.NET Framework 4.8 참조 어셈블리를 받아 그 기준으로 컴파일) |
+| 설치 파일 | `./build.sh setup` (NSIS 필요. Ubuntu: `sudo apt install nsis`) |
 
 결과물은 `release/` 폴더에 생깁니다. 이 폴더에 `neis-key.txt`가 있으면 `./build.sh zip`이 설치 zip에 함께 넣습니다.
 
@@ -85,7 +96,7 @@ Linux에서 빌드할 때는 Mono 자체 라이브러리가 아니라 반드시 
 ```
 src/BaejeongFlip.cs   화면 그리기, 화면보호기 창, 설정 창, 설치/제거 명령
 src/Info.cs           학사일정·급식(NEIS), 날씨(Open-Meteo, 기상청) 받아 오기와 저장
-installer/            설치하기.bat, 제거하기.bat, 설치방법.txt (Windows 한글 CP949)
+installer/            설치하기.bat, 제거하기.bat, 설치방법.txt (Windows 한글 CP949), setup.nsi (설치 마법사)
 .github/workflows/    자동 릴리스 (버전이 바뀌면 빌드·태그·릴리스)
 docs/screenshots/     화면 예시
 ```

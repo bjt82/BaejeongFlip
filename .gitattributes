@@ -3,3 +3,4 @@
 installer/*.txt -text
 *.png binary
 *.gif binary
+*.nsi -text
