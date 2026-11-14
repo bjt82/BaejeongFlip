@@ -13,7 +13,8 @@ namespace BaejeongFlip
     class PhotoShow : IDisposable
     {
         static readonly string[] Exts = { ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tif", ".tiff" };
-        const int FadeMs = 1500;
+        const int FadeMs = 1500;            // 자동 넘김
+        const int FastFadeMs = 450;         // ← / → 키로 넘길 때
         const int MaxFiles = 5000;
 
         readonly string dir;
@@ -24,6 +25,13 @@ namespace BaejeongFlip
         List<string> files;
         int pos;
         Bitmap cur, next, pending;          // pending: 백그라운드에서 다 그린 다음 사진
+        // 보여 준 사진 기록: ← 키로 실제로 앞에 보였던 사진으로 돌아가기 위해
+        readonly List<string> history = new List<string>();
+        readonly object histLock = new object();
+        int histIdx = -1;                   // 지금 보이는 사진의 기록 위치
+        int pendingIdx = -1;                // pending 사진의 기록 위치
+        int fadeMs = FadeMs;
+        bool pendingFast;
         Size target;
         long shownAt, fadeStart = -1;
         int loading;
@@ -36,6 +44,9 @@ namespace BaejeongFlip
             this.fit = fit;
             intervalMs = Math.Max(5, intervalSec) * 1000L;
         }
+
+        /// 지금 보이는 사진 경로 (확인용)
+        public string CurrentPath { get { lock (histLock) return histIdx >= 0 && histIdx < history.Count ? history[histIdx] : null; } }
 
         /// 보여 줄 사진이 준비됐는지
         public bool HasImage { get { return cur != null; } }
@@ -55,7 +66,7 @@ namespace BaejeongFlip
                 changed = true;
             }
             // 크로스페이드 끝
-            if (next != null && now - fadeStart >= FadeMs)
+            if (next != null && now - fadeStart >= fadeMs)
             {
                 cur.Dispose();
                 cur = next; next = null; fadeStart = -1; shownAt = now;
@@ -66,14 +77,18 @@ namespace BaejeongFlip
             if (ready != null)
             {
                 if (ready.Size != target) ready.Dispose();
-                else if (cur == null) { cur = ready; shownAt = now; }
-                else { next = ready; fadeStart = now; }
+                else
+                {
+                    histIdx = pendingIdx;
+                    if (cur == null) { cur = ready; shownAt = now; }
+                    else { next = ready; fadeStart = now; fadeMs = pendingFast ? FastFadeMs : FadeMs; }
+                }
                 changed = true;
             }
-            // 다음 사진 준비 시작
+            // 다음 사진 준비 시작 (← 키로 돌아갔다면 기록에 있는 다음 사진부터)
             if (Interlocked.CompareExchange(ref loading, 0, 0) == 0 && next == null)
             {
-                if (cur == null || now - shownAt >= intervalMs) StartLoad(target);
+                if (cur == null || now - shownAt >= intervalMs) StartLoad(target, histIdx + 1, false);
             }
             return changed || next != null;
         }
@@ -89,7 +104,7 @@ namespace BaejeongFlip
             g.CompositingMode = CompositingMode.SourceOver;
             if (next != null)
             {
-                float a = Math.Min(1f, Math.Max(0f, (now - fadeStart) / (float)FadeMs));
+                float a = Math.Min(1f, Math.Max(0f, (now - fadeStart) / (float)fadeMs));
                 a = a * a * (3 - 2 * a);
                 using (var ia = new ImageAttributes())
                 {
@@ -100,38 +115,76 @@ namespace BaejeongFlip
             g.Restore(st);
         }
 
+        /// ← (-1) / → (+1) 키로 사진 넘기기. 처리했으면 true
+        public bool Navigate(int dir, long now)
+        {
+            if (noPhotos || cur == null || target.Width < 4) return false;
+            if (Interlocked.CompareExchange(ref loading, 0, 0) != 0) return true;   // 준비 중이면 키만 받고 무시
+            int idx = histIdx + dir;
+            if (idx < 0) return true;                                              // 더 앞의 사진이 없음
+            if (next != null)                                                      // 넘어가는 중이면 바로 끝내고 다음으로
+            {
+                cur.Dispose(); cur = next; next = null; fadeStart = -1;
+            }
+            shownAt = now;                                                         // 자동 넘김 시간은 지금부터 다시
+            StartLoad(target, idx, true);
+            return true;
+        }
+
         /// 그림 확인용: 첫 사진을 바로 준비
         public void LoadNowForTest(Size size)
         {
             target = size;
-            cur = LoadNext(size);
-            if (cur == null) noPhotos = true;
+            cur = LoadAt(0, size);
+            if (cur == null) noPhotos = true; else histIdx = 0;
         }
 
-        void StartLoad(Size size)
+        void StartLoad(Size size, int idx, bool fast)
         {
             Interlocked.Exchange(ref loading, 1);
             ThreadPool.QueueUserWorkItem(_ =>
             {
                 try
                 {
-                    var bmp = LoadNext(size);
-                    if (bmp != null) { var old = Interlocked.Exchange(ref pending, bmp); if (old != null) old.Dispose(); }
+                    var bmp = LoadAt(idx, size);
+                    if (bmp != null)
+                    {
+                        pendingIdx = idx; pendingFast = fast;
+                        var old = Interlocked.Exchange(ref pending, bmp);
+                        if (old != null) old.Dispose();
+                    }
                 }
                 catch { }
                 finally { Interlocked.Exchange(ref loading, 0); }
             });
         }
 
-        Bitmap LoadNext(Size size)
+        // 기록의 idx 번째 사진을 그림. 기록 끝을 넘으면 새 사진을 골라 기록에 추가
+        Bitmap LoadAt(int idx, Size size)
         {
             if (files == null) files = Scan();
             if (files.Count == 0) { noPhotos = true; return null; }
+            string path = null;
+            lock (histLock) if (idx < history.Count) path = history[idx];
+            if (path != null)
+            {
+                try { return Render(path, size); }
+                catch { lock (histLock) history.RemoveAt(idx); }      // 그사이 지워진 파일 등: 기록에서 빼고 새 사진으로
+            }
             for (int attempt = 0; attempt < Math.Min(files.Count, 10); attempt++)
             {
                 if (pos >= files.Count) { pos = 0; Shuffle(files); }
-                string path = files[pos++];
-                try { return Render(path, size); }
+                path = files[pos++];
+                try
+                {
+                    var bmp = Render(path, size);
+                    lock (histLock)
+                    {
+                        if (idx > history.Count) idx = history.Count;
+                        history.Insert(idx, path);
+                    }
+                    return bmp;
+                }
                 catch { /* 읽을 수 없는 파일은 건너뜀 */ }
             }
             return null;

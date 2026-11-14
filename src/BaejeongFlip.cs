@@ -17,16 +17,16 @@ using Microsoft.Win32;
 [assembly: AssemblyDescription("배정고등학교 플립시계 화면보호기")]
 [assembly: AssemblyProduct("배정플립")]
 [assembly: AssemblyCompany("배정고등학교 교육연구부")]
-[assembly: AssemblyVersion("1.1.0.0")]
-[assembly: AssemblyFileVersion("1.1.0.0")]
-[assembly: AssemblyInformationalVersion("1.1")]
+[assembly: AssemblyVersion("1.2.0.0")]
+[assembly: AssemblyFileVersion("1.2.0.0")]
+[assembly: AssemblyInformationalVersion("1.2")]
 
 namespace BaejeongFlip
 {
     // ───────────────────────── 설정 ─────────────────────────
     class Settings
     {
-        public const string AppName = "배정플립", Version = "1.1";
+        public const string AppName = "배정플립", Version = "1.2";
         const string Key = @"Software\BaejeongFlip";
         const string OldKey = @"Software\FlipClockSaver";     // 이름을 바꾸기 전(플립시계) 설정 위치
         public bool H24 = true, ShowSeconds = false, ShowDate = true;
@@ -353,6 +353,9 @@ namespace BaejeongFlip
         }
 
         public void LoadPhotoNowForTest(Size size) { if (photos != null) photos.LoadNowForTest(size); }
+
+        /// 사진 배경일 때 ← / → 로 사진 넘기기. 처리했으면 true (화면보호기를 끄지 않음)
+        public bool NavigatePhoto(int dir, long now) { return photos != null && photos.HasImage && photos.Navigate(dir, now); }
 
         public void DisposePhotos() { if (photos != null) { photos.Dispose(); photos = null; } }
 
@@ -1274,6 +1277,7 @@ namespace BaejeongFlip
         [StructLayout(LayoutKind.Sequential)] struct RECT { public int L, T, R, B; }
 
         readonly ClockRenderer renderer;
+        static readonly List<SaverForm> All = new List<SaverForm>();   // 모니터마다 하나: 키를 누르면 모든 화면의 사진을 함께 넘김
         readonly Timer timer = new Timer();
         readonly Stopwatch clock = Stopwatch.StartNew();
         readonly IntPtr previewParent;
@@ -1311,12 +1315,27 @@ namespace BaejeongFlip
                 MouseMove += OnMouseMoveExit;
                 MouseDown += (s, e) => Close();
                 KeyDown += (s, e) => Close();
+                All.Add(this);
             }
 
             renderer.Update(DateTime.Now, -100000); // 시작할 때는 넘김 없이 바로 표시
             timer.Interval = 15;
             timer.Tick += OnTick;
             timer.Start();
+        }
+
+        // ← / → 는 사진 배경일 때 사진을 넘기고 화면보호기를 유지. 그 밖의 키는 KeyDown 에서 화면보호기 종료
+        protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+        {
+            if (previewParent == IntPtr.Zero && (keyData == Keys.Left || keyData == Keys.Right))
+            {
+                int dir = keyData == Keys.Left ? -1 : 1;
+                bool handled = false;
+                foreach (var f in All.ToArray())
+                    if (!f.IsDisposed && f.renderer.NavigatePhoto(dir, f.clock.ElapsedMilliseconds)) { handled = true; f.Invalidate(); }
+                if (handled) return true;
+            }
+            return base.ProcessCmdKey(ref msg, keyData);
         }
 
         void OnMouseMoveExit(object s, MouseEventArgs e)
