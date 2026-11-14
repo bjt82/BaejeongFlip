@@ -1,4 +1,4 @@
-// 배정플립 1.0 — 배정고등학교 플립시계 화면보호기 (Windows .scr)
+// 배정플립 — 배정고등학교 플립시계 화면보호기 (Windows .scr)
 // 빌드: build.bat (Windows) 또는 build.sh (Linux/Mono) 참고
 // 인자:  /s  전체화면 실행   /c  설정 창   /p <hwnd>  미리보기 창
 //        /install <초>  화면보호기로 지정   /uninstall  지정 해제
@@ -17,16 +17,16 @@ using Microsoft.Win32;
 [assembly: AssemblyDescription("배정고등학교 플립시계 화면보호기")]
 [assembly: AssemblyProduct("배정플립")]
 [assembly: AssemblyCompany("배정고등학교 교육연구부")]
-[assembly: AssemblyVersion("1.0.0.0")]
-[assembly: AssemblyFileVersion("1.0.0.0")]
-[assembly: AssemblyInformationalVersion("1.0")]
+[assembly: AssemblyVersion("1.1.0.0")]
+[assembly: AssemblyFileVersion("1.1.0.0")]
+[assembly: AssemblyInformationalVersion("1.1")]
 
 namespace BaejeongFlip
 {
     // ───────────────────────── 설정 ─────────────────────────
     class Settings
     {
-        public const string AppName = "배정플립", Version = "1.0";
+        public const string AppName = "배정플립", Version = "1.1";
         const string Key = @"Software\BaejeongFlip";
         const string OldKey = @"Software\FlipClockSaver";     // 이름을 바꾸기 전(플립시계) 설정 위치
         public bool H24 = true, ShowSeconds = false, ShowDate = true;
@@ -40,6 +40,16 @@ namespace BaejeongFlip
         public bool ShowWeather = true;
         public int WeatherSource = 0;                 // 0: Open-Meteo, 1: 기상청 단기예보
         public string KmaKey = "", Lat = "35.1390", Lon = "129.0690";   // 기본: 배정고등학교 (부산 남구 문현동)
+        // 배경: 0 검은 바탕, 1 사진 배경 + 작은 시계 판
+        public int BgMode = 0;
+        public string PhotoDir = "";
+        public bool PhotoSub = true;
+        public int PhotoSec = 30;
+        public int PhotoFit = 0;                      // 0 화면 채우기(가장자리 잘림), 1 사진 전체 보이기
+        public int PanelPos = 2;                      // 0 오른쪽 아래, 1 왼쪽 아래, 2 10분마다 번갈아
+        public int PanelSize = 1;                     // 0 작게, 1 보통, 2 크게
+
+        static int I(RegistryKey k, string n, int def) { try { var v = k.GetValue(n); return v == null ? def : Convert.ToInt32(v); } catch { return def; } }
 
         static bool B(RegistryKey k, string n, bool def) { try { var v = k.GetValue(n); return v == null ? def : Convert.ToInt32(v) != 0; } catch { return def; } }
         static string S(RegistryKey k, string n, string def) { var v = k.GetValue(n) as string; return v ?? def; }
@@ -76,6 +86,13 @@ namespace BaejeongFlip
                         s.KmaKey = ReadSecret(k, "KmaKeyEnc", "KmaKey");
                         s.Lat = S(k, "Lat", s.Lat);
                         s.Lon = S(k, "Lon", s.Lon);
+                        s.BgMode = I(k, "BgMode", s.BgMode);
+                        s.PhotoDir = S(k, "PhotoDir", s.PhotoDir);
+                        s.PhotoSub = B(k, "PhotoSub", s.PhotoSub);
+                        s.PhotoSec = I(k, "PhotoSec", s.PhotoSec);
+                        s.PhotoFit = I(k, "PhotoFit", s.PhotoFit);
+                        s.PanelPos = I(k, "PanelPos", s.PanelPos);
+                        s.PanelSize = I(k, "PanelSize", s.PanelSize);
                     }
                 }
             }
@@ -193,6 +210,13 @@ namespace BaejeongFlip
                     k.SetValue("WeatherSource", WeatherSource, RegistryValueKind.DWord);
                     k.SetValue("Lat", Lat ?? "", RegistryValueKind.String);
                     k.SetValue("Lon", Lon ?? "", RegistryValueKind.String);
+                    k.SetValue("BgMode", BgMode, RegistryValueKind.DWord);
+                    k.SetValue("PhotoDir", PhotoDir ?? "", RegistryValueKind.String);
+                    k.SetValue("PhotoSub", PhotoSub ? 1 : 0, RegistryValueKind.DWord);
+                    k.SetValue("PhotoSec", PhotoSec, RegistryValueKind.DWord);
+                    k.SetValue("PhotoFit", PhotoFit, RegistryValueKind.DWord);
+                    k.SetValue("PanelPos", PanelPos, RegistryValueKind.DWord);
+                    k.SetValue("PanelSize", PanelSize, RegistryValueKind.DWord);
                     // 인증키는 암호화해서 저장 (평문 값은 남기지 않음)
                     if (string.IsNullOrEmpty(NeisKey)) k.DeleteValue("NeisKeyEnc", false); else k.SetValue("NeisKeyEnc", Protect(NeisKey), RegistryValueKind.String);
                     if (string.IsNullOrEmpty(KmaKey)) k.DeleteValue("KmaKeyEnc", false); else k.SetValue("KmaKeyEnc", Protect(KmaKey), RegistryValueKind.String);
@@ -257,9 +281,13 @@ namespace BaejeongFlip
         const int DriftMs = 8000;
         readonly Random rng = new Random();
 
+        PhotoShow photos;                     // 사진 배경 (BgMode == 1)
+
         public ClockRenderer(Settings cfg)
         {
             Cfg = cfg;
+            if (cfg.BgMode == 1 && !string.IsNullOrEmpty(cfg.PhotoDir))
+                photos = new PhotoShow(cfg.PhotoDir, cfg.PhotoSub, cfg.PhotoFit == 1, cfg.PhotoSec);
             digitFamily = PickFamily(out digitStyle,
                 "Bahnschrift SemiBold Condensed", "Bahnschrift SemiBold SemiConden", "Bahnschrift Condensed",
                 "Bahnschrift", "Arial Narrow", "DejaVu Sans Condensed", "Arial");
@@ -312,11 +340,21 @@ namespace BaejeongFlip
             return c;
         }
 
+        /// 사진 준비·전환. 다시 그려야 하면 true
+        public bool TickPhotos(long now, Size size)
+        {
+            return photos != null && photos.Tick(now, size);
+        }
+
+        public void LoadPhotoNowForTest(Size size) { if (photos != null) photos.LoadNowForTest(size); }
+
+        public void DisposePhotos() { if (photos != null) { photos.Dispose(); photos = null; } }
+
         public bool NeedsFrames(long now)
         {
             foreach (var g in new[] { hh, mm, ss, yy, mo, dd })
                 foreach (var c in g) if (c.Animating(now)) return true;
-            return wd.Animating(now) || (now - driftStart) < DriftMs || CornerFading(now) || RotFlipping(now) || SwapFlipping(now);
+            return wd.Animating(now) || (now - driftStart) < DriftMs || CornerFading(now) || RotFlipping(now) || SwapFlipping(now) || PanelAltFlipping(now) || (photos != null && photos.Fading);
         }
 
         public void TickDrift(long now, bool enabled)
@@ -750,6 +788,17 @@ namespace BaejeongFlip
             t = slot == 0 ? 1f : Math.Min(1f, (e % SwapMs) / (float)SwapFlipMs);
         }
 
+        // 시계 판 안의 날씨 ↔ 일정 교대 간격 (일정 넘김 간격의 2배, 최소 12초)
+        long PanelAltInterval { get { return Math.Max(12000L, RotInterval * 2); } }
+        bool panelAlt;
+
+        bool PanelAltFlipping(long now)
+        {
+            if (!panelAlt) return false;
+            long iv = PanelAltInterval;
+            return (now + RotOffsetMs + iv / 3) % iv < SwapFlipMs + 50;
+        }
+
         bool SwapFlipping(long now)
         {
             if (!swapping) return false;
@@ -760,6 +809,25 @@ namespace BaejeongFlip
         void DrawTopBand(Graphics g, InfoView v, float cx, float cy, float dh, float maxTotal, long now)
         {
             bool both = v.Weather != null && v.SchedLine1 != null;
+            if (both && driftScale == 0f)
+            {
+                // 작은 시계 판 안: 폭이 좁아서 날씨와 일정을 한 자리에서 번갈아 넘김
+                panelAlt = true;
+                long iv = PanelAltInterval, e = now + RotOffsetMs + iv / 3;
+                long slot = e / iv;
+                int cur = slot % 2 == 0 ? 1 : 2, prev = cur == 1 ? 2 : 1;
+                float pt = slot == 0 ? 1f : Math.Min(1f, (e % iv) / (float)SwapFlipMs);
+                if (pt >= 1f) { DrawTopBandContent(g, v, cx, cy, dh, maxTotal, now, false, cur); return; }
+                float pY = (float)Math.Abs(Math.Cos(pt * Math.PI));
+                if (pY < 0.03f) return;
+                var ps = g.Save();
+                g.TranslateTransform(0, cy);
+                g.ScaleTransform(1, pY);
+                g.TranslateTransform(0, -cy);
+                DrawTopBandContent(g, v, cx, cy, dh, maxTotal, now, false, pt < 0.5f ? prev : cur);
+                g.Restore(ps);
+                return;
+            }
             swapping = both;
             bool sw = false, prevSw = false; float t = 1f;
             if (both) SwapState(now, out sw, out prevSw, out t);
@@ -775,20 +843,21 @@ namespace BaejeongFlip
             g.Restore(st);
         }
 
-        void DrawTopBandContent(Graphics g, InfoView v, float cx, float cy, float dh, float maxTotal, long now, bool schedFirst)
+        void DrawTopBandContent(Graphics g, InfoView v, float cx, float cy, float dh, float maxTotal, long now, bool schedFirst, int only = 0)
         {
             float s1 = dh * 0.27f, s2 = dh * 0.21f, tempS = dh * 0.50f, iconS = dh * 0.82f;
             float y1 = cy - dh * 0.19f, y2 = cy + dh * 0.21f;
 
+            bool showW = v.Weather != null && only != 2, showS = v.SchedLine1 != null && only != 1;
             float wW = 0, tempW = 0, wTextW = 0;
-            if (v.Weather != null)
+            if (showW)
             {
                 tempW = Measure("temp", v.TempText, tempS);
                 wTextW = Math.Max(Measure("infob", v.WeatherLine1, s1), Measure("info", v.WeatherLine2, s2));
                 wW = iconS + dh * 0.16f + tempW + dh * 0.24f + wTextW;
             }
             float sW = 0, chipW = 0;
-            if (v.SchedLine1 != null)
+            if (showS)
             {
                 chipW = ChipWidth(v.SchedChip, s1);
                 float w1 = 0, w2 = 0;                               // 돌아가는 항목 중 가장 긴 것 기준 (넘길 때 폭이 흔들리지 않게)
@@ -804,7 +873,7 @@ namespace BaejeongFlip
             float xSep = schedFirst ? x0 + sW : x0 + wW;
             float xSched = schedFirst ? x0 : x0 + wW + sep;
 
-            if (v.Weather != null)
+            if (showW)
             {
                 float x = xWeather;
                 DrawWeatherIcon(g, v.Weather.Icon, x + iconS / 2f, cy, iconS);
@@ -819,7 +888,7 @@ namespace BaejeongFlip
                 using (var pen = new Pen(Color.FromArgb(70, Muted), Math.Max(1f, dh * 0.015f)))
                     g.DrawLine(pen, xSep + sep / 2f, cy - dh * 0.36f, xSep + sep / 2f, cy + dh * 0.36f);
             }
-            if (v.SchedLine1 != null)
+            if (showS)
             {
                 float x = xSched;
                 float ly1 = v.SchedLine2 == null ? cy : y1;
@@ -992,8 +1061,50 @@ namespace BaejeongFlip
             g.PixelOffsetMode = PixelOffsetMode.HighQuality;
             g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
             g.CompositingQuality = CompositingQuality.HighQuality;
-            g.Clear(Bg);
 
+            if (photos != null && photos.HasImage)
+            {
+                // 사진 배경 + 모서리에 작은 시계 판
+                photos.Draw(g, bounds, now);
+                using (var dim = new SolidBrush(Color.FromArgb(38, 0, 0, 0))) g.FillRectangle(dim, bounds);   // 눈부심을 조금 줄임
+                var panel = PanelRect(bounds, now);
+                using (var rr = Rounded(panel, panel.Height * 0.06f))
+                {
+                    using (var bg = new SolidBrush(Color.FromArgb(170, 10, 11, 13))) g.FillPath(bg, rr);
+                    using (var pen = new Pen(Color.FromArgb(36, 255, 255, 255), Math.Max(1f, panel.Height * 0.004f))) g.DrawPath(pen, rr);
+                }
+                var inner = RectangleF.Inflate(panel, -panel.Width * 0.025f, -panel.Height * 0.03f);
+                driftScale = 0f;                      // 판 안에서는 움직이지 않음 (판 자체가 움직임)
+                PaintContent(g, Rectangle.Round(inner), now);
+                DrawCorners(g, bounds, now, true);
+            }
+            else
+            {
+                g.Clear(Bg);
+                driftScale = 1f;
+                PaintContent(g, bounds, now);
+                DrawCorners(g, bounds, now, false);
+            }
+        }
+
+        float driftScale = 1f;
+
+        // 시계 판 위치: 화면의 30~46% 크기, 오른쪽 아래 / 왼쪽 아래 / 10분마다 번갈아. 판 자체도 1분마다 조금씩 이동
+        RectangleF PanelRect(Rectangle b, long now)
+        {
+            float[] sizes = { 0.34f, 0.42f, 0.50f };
+            float f = sizes[Math.Max(0, Math.Min(2, Cfg.PanelSize))];
+            float pw = b.Width * f, ph = b.Height * f;
+            float m = Math.Min(b.Width, b.Height) * 0.035f;
+            bool left = Cfg.PanelPos == 1 || (Cfg.PanelPos == 2 && ((now + CornerOffsetMs + CornerMs / 2) / CornerMs) % 2 == 1);
+            float dx = Math.Abs(drift.X) * b.Width * 0.35f, dy = Math.Abs(drift.Y) * b.Height * 0.35f;
+            float x = left ? b.X + m + dx : b.Right - m - pw - dx;
+            float y = b.Bottom - m - ph - dy;
+            return new RectangleF(x, y, pw, ph);
+        }
+
+        void PaintContent(Graphics g, Rectangle bounds, long now)
+        {
             float W = bounds.Width, Hs = bounds.Height;
             if (W < 10 || Hs < 10) return;
 
@@ -1003,6 +1114,8 @@ namespace BaejeongFlip
             if (portrait) h = Cfg.ShowSeconds ? Math.Min(0.22f * Hs, 0.14f * W) : Math.Min(0.22f * Hs, 0.19f * W);
             float dh = Math.Max(Math.Min(30f, Hs * 0.08f), Math.Min(130f, Math.Min(0.10f * Hs, 0.048f * W)));
             if (Cfg.ShowSeconds == false) dh = Math.Max(dh, Math.Min(0.10f * Hs, 0.058f * W));
+            // 작은 시계 판 안에서는 날씨·일정·급식 글자가 너무 작아지지 않도록 정보 줄을 키우고 시계는 조금 줄임
+            if (driftScale == 0f) { dh = Math.Min(dh * 1.5f, Hs * 0.16f); h *= 0.95f; }
 
             // ── 추가 정보: 위 띠(날씨·일정) / 아래 띠(급식) ──
             var view = BuildInfoView();
@@ -1032,12 +1145,12 @@ namespace BaejeongFlip
             float dateGapV = h * 0.18f;
             float topBandH = topOn ? dh * 0.95f : 0f, topGap = topOn ? h * 0.16f : 0f;
 
-            float ox = bounds.X + W / 2f + drift.X * W;
-            float oy = bounds.Y + Hs / 2f + drift.Y * Hs;
+            float ox = bounds.X + W / 2f + drift.X * W * driftScale;
+            float oy = bounds.Y + Hs / 2f + drift.Y * Hs * driftScale;
             float bandTop = oy - stackH / 2f;
             float top = bandTop + topBandH + topGap;      // 시계 카드 윗변
 
-            rotating = false; mealRotating = false; swapping = false;
+            rotating = false; mealRotating = false; swapping = false; panelAlt = false;
             if (topOn) DrawTopBand(g, view, ox, bandTop + topBandH / 2f, dh, Math.Min(W * 0.92f, Math.Max(clockW, W * 0.62f)), now);
             if (mealOn)
             {
@@ -1107,17 +1220,35 @@ namespace BaejeongFlip
                 DrawCard(g, new RectangleF(dx, dy, wordW, dh), wd, "word", Accent, now);
             }
 
-            // ── 모서리 문구: 10분마다 자리를 바꿔 번인 방지 ──
+        }
+
+        // ── 모서리 문구: 10분마다 자리를 바꿔 번인 방지. 사진 배경일 때는 위쪽 두 모서리만 쓰고 그림자를 넣음 ──
+        void DrawCorners(Graphics g, Rectangle bounds, long now, bool onPhoto)
+        {
+            float W = bounds.Width, Hs = bounds.Height;
             float capH = Math.Max(6f, Math.Min(40f, Hs * 0.02f));
             float margin = Math.Max(8f, Math.Min(W, Hs) * 0.035f);
             float cdx = Math.Abs(drift.X) * W * 0.3f, cdy = Math.Abs(drift.Y) * Hs * 0.3f; // 자리 안에서도 조금씩 이동
             int layout; float alpha;
             CornerState(now, out layout, out alpha);
             // 모서리 번호: 0 왼쪽 위, 1 오른쪽 위, 2 왼쪽 아래, 3 오른쪽 아래
-            int[][] layouts = { new[] { 0, 1 }, new[] { 2, 3 }, new[] { 1, 0 }, new[] { 3, 2 } };
+            int[][] layouts = onPhoto ? new[] { new[] { 0, 1 }, new[] { 1, 0 }, new[] { 0, 1 }, new[] { 1, 0 } }
+                                      : new[] { new[] { 0, 1 }, new[] { 2, 3 }, new[] { 1, 0 }, new[] { 3, 2 } };
             if (alpha > 0.01f)
             {
-                using (var b = new SolidBrush(Color.FromArgb((int)(alpha * 255), Muted)))
+                if (onPhoto)
+                {
+                    var st = g.Save();
+                    float off = Math.Max(1f, capH * 0.07f);
+                    g.TranslateTransform(off, off);
+                    using (var sh = new SolidBrush(Color.FromArgb((int)(alpha * 170), 0, 0, 0)))
+                    {
+                        DrawCorner(g, sh, Cfg.LeftText, layouts[layout][0], bounds, capH, margin, cdx, cdy);
+                        DrawCorner(g, sh, Cfg.RightText, layouts[layout][1], bounds, capH, margin, cdx, cdy);
+                    }
+                    g.Restore(st);
+                }
+                using (var b = new SolidBrush(onPhoto ? Color.FromArgb((int)(alpha * 235), 236, 235, 230) : Color.FromArgb((int)(alpha * 255), Muted)))
                 {
                     DrawCorner(g, b, Cfg.LeftText, layouts[layout][0], bounds, capH, margin, cdx, cdy);
                     DrawCorner(g, b, Cfg.RightText, layouts[layout][1], bounds, capH, margin, cdx, cdy);
@@ -1201,6 +1332,7 @@ namespace BaejeongFlip
             if (previewParent == IntPtr.Zero && now >= nextRefresh) { nextRefresh = now + 60000; InfoService.RefreshIfStale(cfg); }
             int ver = InfoService.Version;
             if (ver != infoVersion) { infoVersion = ver; changed = true; }
+            if (renderer.TickPhotos(now, ClientSize)) changed = true;
             if (changed || renderer.NeedsFrames(now)) Invalidate();
         }
 
@@ -1212,6 +1344,7 @@ namespace BaejeongFlip
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
             timer.Stop();
+            renderer.DisposePhotos();
             base.OnFormClosed(e);
             Application.Exit();
         }
@@ -1223,11 +1356,25 @@ namespace BaejeongFlip
         CheckBox c24, cSec, cDate, cSched, cMeal, cWeather;
         TextBox tL, tR, tNeis, tAtpt, tSchool, tKma, tLat, tLon;
         Label lNeisState, lKmaState;
+        RadioButton rPhoto;
+        TextBox tDir;
+        CheckBox cSub;
+        ComboBox cPhotoSec, cFit, cPos, cPSize;
+        static readonly int[] PhotoSecChoices = { 10, 30, 60, 300, 600 };
+        static readonly string[] PhotoSecNames = { "10초", "30초", "1분", "5분", "10분" };
+
+        static ComboBox Combo(int x, int y, int w, string[] items, int sel, int def)
+        {
+            var c = new ComboBox { Left = x, Top = y, Width = w, DropDownStyle = ComboBoxStyle.DropDownList };
+            c.Items.AddRange(items);
+            c.SelectedIndex = sel >= 0 && sel < items.Length ? sel : def;
+            return c;
+        }
         bool clearNeis, clearKma;
 
         // 인증키 입력칸: 저장된 키는 보여 주지 않음. 새 키를 입력하면 교체, 비워 두면 그대로 유지
         static TextBox SecretBox(int x, int y, int w) { return new TextBox { Left = x, Top = y, Width = w, UseSystemPasswordChar = true }; }
-        static string StateText(string key) { return string.IsNullOrEmpty(key) ? "저장된 키 없음" : "● 저장됨"; }
+        static string StateText(string key) { return string.IsNullOrEmpty(key) ? "없음" : "● 저장됨"; }
         RadioButton rMeteo, rKma;
         ComboBox cRot;
         static readonly int[] RotChoices = { 5, 8, 15, 30 };
@@ -1254,7 +1401,7 @@ namespace BaejeongFlip
             MaximizeBox = MinimizeBox = false;
             StartPosition = FormStartPosition.CenterScreen;
             AutoScaleMode = AutoScaleMode.Dpi;
-            ClientSize = new Size(520, 700);
+            ClientSize = new Size(1028, 516);
 
             var gClock = new GroupBox { Text = "시계", Left = 12, Top = 8, Width = 496, Height = 62 };
             gClock.Controls.AddRange(new Control[] {
@@ -1265,7 +1412,7 @@ namespace BaejeongFlip
                 L("학교", 16, 26), tL = T(cfg.LeftText, 60, 26, 170), L("부서", 250, 26), tR = T(cfg.RightText, 294, 26, 186) });
 
             Button bNeisClear, bKmaClear;
-            var gSchool = new GroupBox { Text = "학교 정보 · NEIS 교육정보 개방 포털", Left = 12, Top = 148, Width = 496, Height = 218 };
+            var gSchool = new GroupBox { Text = "학교 정보 · NEIS 교육정보 개방 포털", Left = 520, Top = 8, Width = 496, Height = 218 };
             cRot = new ComboBox { Left = 120, Top = 80, Width = 90, DropDownStyle = ComboBoxStyle.DropDownList };
             cSpeed = new ComboBox { Left = 350, Top = 80, Width = 130, DropDownStyle = ComboBoxStyle.DropDownList };
             for (int si = 0; si < SpeedChoices.Length; si++) cSpeed.Items.Add(SpeedNames[si]);
@@ -1287,7 +1434,7 @@ namespace BaejeongFlip
                 new Label { Text = "새 키를 입력하면 교체, 비워 두면 그대로 유지", Left = 110, Top = 178, AutoSize = true, ForeColor = SystemColors.GrayText },
                 Link("인증키 발급", "https://open.neis.go.kr/portal/guide/actKeyPage.do", 16, 178) });
 
-            var gW = new GroupBox { Text = "날씨 (시계 위)", Left = 12, Top = 374, Width = 496, Height = 220 };
+            var gW = new GroupBox { Text = "날씨 (시계 위)", Left = 520, Top = 234, Width = 496, Height = 220 };
             gW.Controls.AddRange(new Control[] {
                 cWeather = C("날씨 표시", cfg.ShowWeather, 16, 24),
                 rMeteo = new RadioButton { Text = "Open-Meteo (인증키 필요 없음)", Left = 32, Top = 52, AutoSize = true, Checked = cfg.WeatherSource == 0 },
@@ -1299,10 +1446,36 @@ namespace BaejeongFlip
                 L("위도", 32, 172), tLat = T(cfg.Lat, 70, 172, 90), L("경도", 176, 172), tLon = T(cfg.Lon, 214, 172, 100),
                 new Label { Text = "기본값: 배정고등학교", Left = 330, Top = 175, AutoSize = true, ForeColor = SystemColors.GrayText } });
 
-            var test = new Button { Text = "지금 가져와 보기", Left = 12, Top = 610, Width = 150, Height = 34 };
-            var ok = new Button { Text = "확인", Left = 330, Top = 654, Width = 85, Height = 34 };
-            var cancel = new Button { Text = "취소", Left = 423, Top = 654, Width = 85, Height = 34, DialogResult = DialogResult.Cancel };
-            var hint = new Label { Text = "선택한 정보를 지금 받아 보고 결과를 보여 줍니다.", Left = 170, Top = 619, AutoSize = true, ForeColor = SystemColors.GrayText };
+            // 배경 사진
+            var gBg = new GroupBox { Text = "배경", Left = 12, Top = 148, Width = 496, Height = 306 };
+            Button bBrowse;
+            cPhotoSec = Combo(110, 146, 100, PhotoSecNames, Array.IndexOf(PhotoSecChoices, cfg.PhotoSec), 1);
+            cFit = Combo(320, 146, 162, new[] { "화면 채우기", "사진 전체 보이기" }, cfg.PhotoFit, 0);
+            cPos = Combo(110, 180, 170, new[] { "오른쪽 아래", "왼쪽 아래", "10분마다 번갈아" }, cfg.PanelPos, 2);
+            cPSize = Combo(370, 180, 112, new[] { "작게", "보통", "크게" }, cfg.PanelSize, 1);
+            gBg.Controls.AddRange(new Control[] {
+                new RadioButton { Text = "검은 바탕 (화면 가득 플립시계)", Left = 16, Top = 24, AutoSize = true, Checked = cfg.BgMode != 1 },
+                rPhoto = new RadioButton { Text = "사진 배경 + 모서리에 작은 시계 판", Left = 16, Top = 50, AutoSize = true, Checked = cfg.BgMode == 1 },
+                L("사진 폴더", 34, 82), tDir = T(cfg.PhotoDir, 110, 82, 290),
+                bBrowse = new Button { Text = "찾아보기", Left = 406, Top = 80, Width = 76, Height = 26 },
+                cSub = C("하위 폴더 사진도 포함", cfg.PhotoSub, 110, 112),
+                L("사진 간격", 34, 146), cPhotoSec, L("맞춤", 270, 146), cFit,
+                L("시계 위치", 34, 180), cPos, L("크기", 320, 180), cPSize,
+                new Label { Text = "사진이 없거나 폴더를 찾을 수 없으면 검은 바탕으로 표시합니다.", Left = 34, Top = 220, AutoSize = true, ForeColor = SystemColors.GrayText },
+                new Label { Text = "지원 형식: JPG, PNG, BMP, GIF, TIFF (휴대폰 사진 회전 자동 반영)", Left = 34, Top = 244, AutoSize = true, ForeColor = SystemColors.GrayText } });
+            bBrowse.Click += (s, e) =>
+            {
+                using (var fb = new FolderBrowserDialog { Description = "화면보호기 배경으로 쓸 사진 폴더를 고르세요.", ShowNewFolderButton = false })
+                {
+                    if (System.IO.Directory.Exists(tDir.Text)) fb.SelectedPath = tDir.Text;
+                    if (fb.ShowDialog(this) == DialogResult.OK) { tDir.Text = fb.SelectedPath; rPhoto.Checked = true; }
+                }
+            };
+
+            var test = new Button { Text = "지금 가져와 보기", Left = 12, Top = 470, Width = 150, Height = 34 };
+            var ok = new Button { Text = "확인", Left = 838, Top = 470, Width = 85, Height = 34 };
+            var cancel = new Button { Text = "취소", Left = 931, Top = 470, Width = 85, Height = 34, DialogResult = DialogResult.Cancel };
+            var hint = new Label { Text = "선택한 정보를 지금 받아 보고 결과를 보여 줍니다.", Left = 170, Top = 479, AutoSize = true, ForeColor = SystemColors.GrayText };
 
             bNeisClear.Click += (s, e) => { clearNeis = true; tNeis.Text = ""; lNeisState.Text = "지움 (확인을 누르면 삭제)"; };
             bKmaClear.Click += (s, e) => { clearKma = true; tKma.Text = ""; lKmaState.Text = "지움 (확인을 누르면 삭제)"; };
@@ -1315,7 +1488,9 @@ namespace BaejeongFlip
                 cRot.Enabled = cSpeed.Enabled = cSched.Checked;
                 rMeteo.Enabled = rKma.Enabled = tLat.Enabled = tLon.Enabled = cWeather.Checked;
                 tKma.Enabled = bKmaClear.Enabled = cWeather.Checked && rKma.Checked;
+                tDir.Enabled = bBrowse.Enabled = cSub.Enabled = cPhotoSec.Enabled = cFit.Enabled = cPos.Enabled = cPSize.Enabled = rPhoto.Checked;
             };
+            rPhoto.CheckedChanged += sync;
             foreach (var cb in new[] { cSched, cMeal, cWeather }) cb.CheckedChanged += sync;
             rKma.CheckedChanged += sync;
             sync(null, null);
@@ -1332,7 +1507,7 @@ namespace BaejeongFlip
             };
             ok.Click += (s, e) => { Collect(cfg).Save(); DialogResult = DialogResult.OK; Close(); };
 
-            Controls.AddRange(new Control[] { gClock, gCorner, gSchool, gW, test, hint, ok, cancel });
+            Controls.AddRange(new Control[] { gClock, gCorner, gBg, gSchool, gW, test, hint, ok, cancel });
             AcceptButton = ok; CancelButton = cancel;
         }
 
@@ -1347,6 +1522,10 @@ namespace BaejeongFlip
             c.AtptCode = tAtpt.Text.Trim(); c.SchoolCode = tSchool.Text.Trim();
             c.ShowWeather = cWeather.Checked; c.WeatherSource = rKma.Checked ? 1 : 0;
             if (tKma.Text.Trim().Length > 0) c.KmaKey = tKma.Text.Trim(); else if (clearKma) c.KmaKey = "";
+            c.BgMode = rPhoto.Checked ? 1 : 0;
+            c.PhotoDir = tDir.Text.Trim(); c.PhotoSub = cSub.Checked;
+            c.PhotoSec = PhotoSecChoices[Math.Max(0, cPhotoSec.SelectedIndex)];
+            c.PhotoFit = Math.Max(0, cFit.SelectedIndex); c.PanelPos = Math.Max(0, cPos.SelectedIndex); c.PanelSize = Math.Max(0, cPSize.SelectedIndex);
             c.Lat = tLat.Text.Trim(); c.Lon = tLon.Text.Trim();
             return c;
         }
@@ -1492,6 +1671,9 @@ namespace BaejeongFlip
                 if (args.Length > 9 && args[9] == "cache") InfoService.LoadCache();
                 else InfoService.SetForTest(SampleInfo(t, args.Length > 9 ? args[9] : "sun"));
             }
+            if (args.Length > 13) { cfg.BgMode = 1; cfg.PhotoDir = args[13]; }
+            if (args.Length > 14) cfg.PanelPos = int.Parse(args[14]);
+            if (args.Length > 15) cfg.PanelSize = int.Parse(args[15]);
             var r = new ClockRenderer(cfg);
             r.Update(t, -100000);
             if (args.Length > 7 && args[7] != "-") r.CornerOffsetMs = long.Parse(args[7]);
@@ -1500,6 +1682,7 @@ namespace BaejeongFlip
             if (args.Length > 12) r.SwapOffsetMs = long.Parse(args[12]);
             long now = 0;
             if (flipAt >= 0) { r.Update(t.AddSeconds(1), 0); now = flipAt; }
+            r.LoadPhotoNowForTest(new Size(w, h));
             using (var bmp = new Bitmap(w, h))
             using (var g = Graphics.FromImage(bmp))
             {

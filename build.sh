@@ -20,7 +20,7 @@ mkdir -p release
 mcs -target:winexe -platform:anycpu -codepage:utf8 -nostdlib -noconfig \
   -r:"$R/mscorlib.dll" -r:"$R/System.dll" -r:"$R/System.Core.dll" -r:"$R/System.Drawing.dll" \
   -r:"$R/System.Windows.Forms.dll" -r:"$R/System.Web.Extensions.dll" -r:"$R/System.Security.dll" \
-  -out:release/BaejeongFlip.scr src/BaejeongFlip.cs src/Info.cs
+  -out:release/BaejeongFlip.scr src/*.cs
 echo "빌드 완료: release/BaejeongFlip.scr"
 if [ "${1:-}" = "zip" ]; then
   python3 - "$VER" <<'PY'

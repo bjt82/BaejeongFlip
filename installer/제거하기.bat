@@ -1,6 +1,6 @@
 @echo off
 setlocal
-title 배정플립 1.0 제거
+title 배정플립 제거
 set "DEST=%LOCALAPPDATA%\BaejeongFlip"
 
 if exist "%DEST%\BaejeongFlip.scr" start "" /wait "%DEST%\BaejeongFlip.scr" /uninstall

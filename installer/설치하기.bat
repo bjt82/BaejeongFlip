@@ -1,6 +1,6 @@
 @echo off
 setlocal
-title 배정플립 1.0 설치
+title 배정플립 설치
 
 set "SRC=%~dp0BaejeongFlip.scr"
 set "DEST=%LOCALAPPDATA%\BaejeongFlip"
@@ -14,7 +14,7 @@ if not exist "%SRC%" (
 )
 
 echo.
-echo  배정플립 1.0 화면보호기를 설치합니다.
+echo  배정플립 화면보호기를 설치합니다.
 echo  설치 위치: %DEST%
 echo.
 set "MIN=5"
