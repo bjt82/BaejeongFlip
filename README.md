@@ -75,6 +75,8 @@
 
 ## 설정
 
+처음 설치하면 **기본 화면 + 플립시계(검은 바탕)**로 시작합니다. 학사일정·급식·날씨는 켜져 있고, 초 표시는 꺼져 있습니다.
+
 Windows 화면보호기 설정 → **설정** 버튼에서 바꿉니다.
 
 - **시계:** 24시간 형식, 초 표시(기본 꺼짐), 날짜·요일 표시
@@ -116,8 +118,8 @@ Linux에서 빌드할 때는 Mono 자체 라이브러리가 아니라 반드시 
    - `[assembly: AssemblyInformationalVersion("1.0")]`
    - `public const string AppName = "배정플립", Version = "1.0";`
    - 필요하면 `AssemblyVersion`, `AssemblyFileVersion`(예: `1.1.0.0`)도 맞춥니다.
-2. `main`에 올리면 GitHub Actions(`.github/workflows/release.yml`)가 Windows에서 빌드하고, `v1.1` 같은 태그와 공개용 zip이 붙은 릴리스를 만듭니다.
-3. 이미 같은 버전의 릴리스가 있으면 아무것도 하지 않습니다. Actions 탭에서 **릴리스** → **Run workflow**로 직접 실행할 수도 있습니다.
+2. `main`에 올리면 GitHub Actions(`.github/workflows/release.yml`)가 Windows에서 빌드하고, `v1.3` 같은 태그와 공개용 zip·설치 파일(Setup.exe)이 붙은 릴리스를 만듭니다.
+3. 이미 같은 버전의 릴리스가 있으면 아무것도 하지 않습니다(설치 파일이 빠져 있으면 설치 파일만 만들어 붙입니다). Actions 탭에서 **릴리스** → **Run workflow**로 직접 실행할 수도 있습니다.
 
 ## 파일 구성
 
