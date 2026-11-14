@@ -1720,10 +1720,20 @@ namespace BaejeongFlip
                     tSchool.Text = hit.Code;
                     string oldName = tL.Text.Trim();
                     if (oldName.Length == 0 || oldName == "배정고등학교") tL.Text = hit.Name;
-                    MessageBox.Show(this, hit.Name + "(" + hit.AtptName + ")로 설정했습니다.\n\n" +
-                        "날씨 위치는 자동으로 바뀌지 않습니다. 주소를 참고해 위도·경도를 우리 학교 위치로 바꿔 주세요.\n" +
-                        "주소: " + hit.Address + "\n(구글 지도에서 학교를 오른쪽 클릭하면 위도, 경도가 나옵니다.)",
-                        "학교 찾기", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    // 주소의 시·군·구로 날씨 위치(위도·경도)도 채움 (인터넷 없이 프로그램 안의 표에서 찾음)
+                    double la, lo; string where;
+                    string msg = hit.Name + "(" + hit.AtptName + ")로 설정했습니다.\n\n";
+                    if (Geo.TryLocate(hit.Address, out la, out lo, out where))
+                    {
+                        tLat.Text = la.ToString("0.0000", System.Globalization.CultureInfo.InvariantCulture);
+                        tLon.Text = lo.ToString("0.0000", System.Globalization.CultureInfo.InvariantCulture);
+                        msg += "날씨 위치도 " + where + " 중심으로 바꿨습니다 (위도 " + tLat.Text + ", 경도 " + tLon.Text + ").\n" +
+                               "기상청 날씨는 5km 단위라 이 정도면 충분합니다. 더 정확히 하려면 위도·경도를 직접 고쳐도 됩니다.";
+                    }
+                    else
+                        msg += "주소로 날씨 위치를 찾지 못했습니다. 위도·경도를 우리 학교 위치로 바꿔 주세요.\n" +
+                               "주소: " + hit.Address + "\n(구글 지도에서 학교를 오른쪽 클릭하면 위도, 경도가 나옵니다.)";
+                    MessageBox.Show(this, msg, "학교 찾기", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
             };
             bNeisClear.Click += (s, e) => { clearNeis = true; tNeis.Text = ""; lNeisState.Text = "지움 (확인을 누르면 삭제)"; };
@@ -1896,7 +1906,12 @@ namespace BaejeongFlip
             if (mode == "/q")
             {
                 foreach (var h in InfoService.SearchSchools(arg ?? "", Settings.Load().NeisKey))
-                    Console.WriteLine(h.Name + " | " + h.AtptName + " " + h.AtptCode + " | " + h.Code + " | " + h.Address);
+                {
+                    double la, lo; string where;
+                    string pos = Geo.TryLocate(h.Address, out la, out lo, out where)
+                        ? string.Format(System.Globalization.CultureInfo.InvariantCulture, "{0:0.0000},{1:0.0000} ({2})", la, lo, where) : "위치 못 찾음";
+                    Console.WriteLine(h.Name + " | " + h.AtptName + " " + h.AtptCode + " | " + h.Code + " | " + h.Address + " | " + pos);
+                }
                 return;
             }
 
