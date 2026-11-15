@@ -17,16 +17,16 @@ using Microsoft.Win32;
 [assembly: AssemblyDescription("배정고등학교 플립시계 화면보호기")]
 [assembly: AssemblyProduct("배정플립")]
 [assembly: AssemblyCompany("배정고등학교 교육연구부")]
-[assembly: AssemblyVersion("1.3.0.0")]
-[assembly: AssemblyFileVersion("1.3.0.0")]
-[assembly: AssemblyInformationalVersion("1.3")]
+[assembly: AssemblyVersion("1.4.0.0")]
+[assembly: AssemblyFileVersion("1.4.0.0")]
+[assembly: AssemblyInformationalVersion("1.4")]
 
 namespace BaejeongFlip
 {
     // ───────────────────────── 설정 ─────────────────────────
     class Settings
     {
-        public const string AppName = "배정플립", Version = "1.3";
+        public const string AppName = "배정플립", Version = "1.4";
         const string Key = @"Software\BaejeongFlip";
         const string OldKey = @"Software\FlipClockSaver";     // 이름을 바꾸기 전(플립시계) 설정 위치
         public bool H24 = true, ShowSeconds = false, ShowDate = true;
@@ -48,7 +48,7 @@ namespace BaejeongFlip
         public int PhotoFit = 0;                      // 0 화면 채우기(가장자리 잘림), 1 사진 전체 보이기
         public int PanelPos = 2;                      // 0 오른쪽 아래, 1 왼쪽 아래, 2 10분마다 번갈아
         public int PanelSize = 1;                     // 0 작게, 1 보통, 2 크게
-        public int DisplaySize = 0;                   // 0 기본 화면, 1 큰 화면 (멀리서도 보이게 화면을 꽉 채움)
+        public int DisplaySize = 0;                   // 0 기본 화면, 1 시계 중심 화면 (시계가 화면 높이의 약 70%)
 
         static int I(RegistryKey k, string n, int def) { try { var v = k.GetValue(n); return v == null ? def : Convert.ToInt32(v); } catch { return def; } }
 
@@ -470,6 +470,8 @@ namespace BaejeongFlip
             var tp = TextPath(kind, text, textH);
             var st2 = g.Save();
             g.TranslateTransform(card.X + card.Width / 2f, hinge);
+            float tw = tp.GetBounds().Width, maxTw = card.Width * 0.88f;     // 카드가 좁으면 글자를 가로로만 눌러 맞춤
+            if (tw > maxTw) g.ScaleTransform(maxTw / tw, 1f);
             using (var b = new SolidBrush(fg)) g.FillPath(b, tp);
             g.Restore(st2);
             if (shade > 0.003f)
@@ -921,7 +923,8 @@ namespace BaejeongFlip
             }
         }
 
-        int mealLinesForced;                  // 큰 화면에서 정한 급식 줄 수 (0이면 자동)
+        int mealLinesForced;                  // 시계 중심 화면에서 정한 급식 줄 수 (0이면 자동)
+        float mealLineK = 2.2f;               // 급식 줄 간격 (글자 크기의 배수)
 
         // 메뉴를 n줄로 고르게 나누기 (줄마다 폭이 비슷하도록)
         List<string>[] SplitMealN(List<string> menu, float s, int n)
@@ -979,115 +982,257 @@ namespace BaejeongFlip
             }
         }
 
-        // ── 큰 화면: 멀리서도 보이게 화면을 꽉 채움 ──
-        // 각 줄을 기준 크기로 재고, 화면 폭·높이 중 먼저 닿는 쪽까지 한 번에 키움.
-        // 가로 화면: [날씨 | 일정] / 시계 / 날짜 / 급식(최대 2줄)
-        // 세로 화면: 날씨 / 일정 / 시계 / 날짜 / 급식(최대 5줄), 남는 높이는 줄 간격으로 고르게 나눔
-        void PaintBig(Graphics g, Rectangle b, long now)
+        // ── 시계 중심 화면: 플립시계가 화면 높이의 약 70% ──
+        // 가로: 맨 위 모서리 문구 / 위 띠 [날짜 | 날씨 | 일정] / 시계 한 줄 / 급식(시계 아래)
+        // 세로: 모서리 문구 / 날짜 / 날씨 / 일정 / 시계 두 줄(시 위, 분 아래) / 급식
+        // 카드 비율은 화면 비율에 맞춰 자동: 시계가 높이 70%가 되는 선에서 카드를 가능한 한 넓게 하고,
+        // 간격을 좁혀 16:9 에서는 가로:세로 약 0.56:1 이 됨. 4:3 처럼 너무 좁아지면 시계를 조금 줄임.
+        const float FocusRatioMin = 0.45f, FocusRatioMax = 0.62f;
+
+        // 한 줄 시계(시:분[:초])의 가로 = 높이 × 이 값 (카드 비율 r 일 때)
+        float ClockFactor(int groups, float r)
         {
-            float W = b.Width, Hs = b.Height;
-            bool portrait = Hs > W * 1.05f;
+            return 2 * groups * r + groups * 0.025f + (groups - 1) * 0.11f + (Cfg.H24 ? 0f : 0.19f);
+        }
+
+        void FocusDims(float availW, float hMax, int groups, out float h, out float r)
+        {
+            h = hMax;
+            float fixedPart = ClockFactor(groups, 0f);
+            r = (availW / h - fixedPart) / (2 * groups);
+            if (r < FocusRatioMin) { r = FocusRatioMin; h = availW / ClockFactor(groups, r); }
+            if (r > FocusRatioMax) r = FocusRatioMax;
+        }
+
+        // 한 줄 시계 그리기 (좁은 간격)
+        void DrawClockRowC(Graphics g, float cx, float top, float h, float r, long now)
+        {
+            int groups = Cfg.ShowSeconds ? 3 : 2;
+            float w = r * h, cg = 0.025f * h, gg = 0.03f * h, colonW = 0.05f * h;
+            float ampmW = Cfg.H24 ? 0f : h * 0.16f + gg;
+            float total = h * ClockFactor(groups, r);
+            float x = cx - total / 2f;
+            if (!Cfg.H24)
+            {
+                var a = TextPath("digit", ampm.Substring(0, 1), h * 0.08f);
+                var m = TextPath("digit", ampm.Substring(1, 1), h * 0.08f);
+                using (var b = new SolidBrush(Accent))
+                {
+                    var st = g.Save(); g.TranslateTransform(x + h * 0.07f, top + h * 0.10f); g.FillPath(b, a); g.Restore(st);
+                    st = g.Save(); g.TranslateTransform(x + h * 0.07f, top + h * 0.22f); g.FillPath(b, m); g.Restore(st);
+                }
+                x += ampmW;
+            }
+            FlipCard[][] cgp = Cfg.ShowSeconds ? new[] { hh, mm, ss } : new[] { hh, mm };
+            for (int gi = 0; gi < cgp.Length; gi++)
+            {
+                for (int i = 0; i < 2; i++)
+                {
+                    DrawCard(g, new RectangleF(x, top, w, h), cgp[gi][i], "digit", Digit, now);
+                    x += w + (i == 0 ? cg : 0);
+                }
+                if (gi < cgp.Length - 1)
+                {
+                    x += gg;
+                    float dr = h * 0.026f, ccx = x + colonW / 2f, cy = top + h / 2f;
+                    using (var b = new SolidBrush(Color.FromArgb(180, Muted)))
+                    {
+                        g.FillEllipse(b, ccx - dr, cy - h * 0.12f - dr, 2 * dr, 2 * dr);
+                        g.FillEllipse(b, ccx - dr, cy + h * 0.12f - dr, 2 * dr, 2 * dr);
+                    }
+                    x += colonW + gg;
+                }
+            }
+        }
+
+        // 세로 화면: 시·분(·초)을 위아래로 쌓은 시계
+        void DrawClockStack(Graphics g, float cx, float top, float h, float w, float rowGap, long now)
+        {
+            FlipCard[][] cgp = Cfg.ShowSeconds ? new[] { hh, mm, ss } : new[] { hh, mm };
+            float cg = 0.025f * h, y = top;
+            for (int gi = 0; gi < cgp.Length; gi++)
+            {
+                float x = cx - (2 * w + cg) / 2f;
+                for (int i = 0; i < 2; i++) { DrawCard(g, new RectangleF(x, y, w, h), cgp[gi][i], "digit", Digit, now); x += w + cg; }
+                if (gi == 0 && !Cfg.H24)
+                    DrawText(g, "infob", ampm == "AM" ? "오전" : "오후", h * 0.08f, Accent, cx - (2 * w + cg) / 2f + h * 0.06f, y + h * 0.07f);
+                y += h + rowGap;
+            }
+        }
+
+        // 날짜 블록. 가로: 연도(작게) / 날짜(크게) / 요일(주황) 세 줄, 세로: 한 줄 "11월 13일 금요일 2026년"을 가운데 정렬
+        void DrawDateBlock(Graphics g, float x, float y, float bandH, bool inlineWeekday)
+        {
+            var now = shown;
+            string year = now.Year + "년", date = now.Month + "월 " + now.Day + "일", wd = Days[(int)now.DayOfWeek];
+            if (!inlineWeekday)
+            {
+                DrawText(g, "info", year, bandH * 0.15f, Muted, x, y + bandH * 0.12f);
+                DrawText(g, "infob", date, bandH * 0.36f, Digit, x, y + bandH * 0.46f);
+                DrawText(g, "infob", wd, bandH * 0.24f, Accent, x, y + bandH * 0.82f);
+            }
+            else
+            {
+                // x 는 가운데 기준
+                float sd = bandH * 0.56f, sw = bandH * 0.44f, sy = bandH * 0.26f, gap = bandH * 0.28f;
+                float wDate = Measure("infob", date, sd), wWd = Measure("infob", wd, sw), wYear = Measure("info", year, sy);
+                float left = x - (wDate + gap + wWd + gap * 0.8f + wYear) / 2f, cy = y + bandH * 0.5f;
+                DrawText(g, "infob", date, sd, Digit, left, cy);
+                DrawText(g, "infob", wd, sw, Accent, left + wDate + gap, cy);
+                DrawText(g, "info", year, sy, Muted, left + wDate + gap + wWd + gap * 0.8f, cy + bandH * 0.08f);
+            }
+        }
+
+        float DateBlockWidth(float bandH, bool inlineWeekday)
+        {
+            float sample = Measure("infob", "00월 00일", inlineWeekday ? bandH * 0.56f : bandH * 0.36f);
+            if (inlineWeekday) return sample;
+            return Math.Max(sample, Measure("infob", "수요일", bandH * 0.24f));
+        }
+
+        // 급식 띠(시계 아래): 한 줄에 들어가면 크게, 아니면 줄 수를 늘리되 띠 높이 안에 맞춤
+        void DrawFocusMeal(Graphics g, InfoView v, float cx, float top, float bandH, float availW, int maxLines, float maxS, long now)
+        {
+            const float LineK = 1.45f;                       // 줄 높이 = 글자 크기 × 1.45
+            int lines = 1; float s = 0, dh = 0;
+            // 글자를 조금(22%까지)만 줄이면 한 줄에 들어갈 때는 한 줄을 유지
+            s = Math.Min(maxS, bandH / LineK); dh = s / 0.27f;
+            float need1 = MealWidth(v, dh, 1);
+            if (need1 > availW && availW / need1 >= 0.78f)
+            {
+                dh *= availW / need1; s = dh * 0.27f;
+                float lh = s * LineK;
+                mealLinesForced = 1; mealLineK = LineK;
+                DrawMealBand(g, v, cx, top + (bandH - lh) / 2f, dh, availW / 0.86f, now);
+                mealLinesForced = 0; mealLineK = 2.2f;
+                return;
+            }
+            for (lines = 1; lines <= maxLines; lines++)
+            {
+                s = Math.Min(maxS, bandH / (lines * LineK));
+                dh = s / 0.27f;
+                if (MealWidth(v, dh, lines) <= availW) break;
+            }
+            if (lines > maxLines)                             // 줄을 최대로 늘려도 안 들어가면 글자를 줄임
+            {
+                lines = maxLines;
+                s = Math.Min(maxS, bandH / (lines * LineK)); dh = s / 0.27f;
+                dh *= availW / MealWidth(v, dh, lines);
+            }
+            s = dh * 0.27f;
+            float lineH = s * LineK;
+            mealLinesForced = lines; mealLineK = LineK;
+            DrawMealBand(g, v, cx, top + (bandH - lines * lineH) / 2f, dh, availW / 0.86f, now);
+            mealLinesForced = 0; mealLineK = 2.2f;
+        }
+
+        void PaintFocus(Graphics g, Rectangle b, long now)
+        {
+            float W = b.Width, H = b.Height;
+            bool portrait = H > W * 1.05f;
             var v = BuildInfoView();
             bool wOn = v.Weather != null, sOn = v.SchedLine1 != null, mOn = v.MealMenu != null, dOn = Cfg.ShowDate;
-            // 위·아래 모서리 문구 자리는 비워 둠 (모서리 문구가 10분마다 위↔아래로 옮겨 다니므로)
-            float cornerBand = Cfg.LeftText.Length + Cfg.RightText.Length > 0
-                ? Math.Max(8f, Math.Min(W, Hs) * 0.035f) + CornerCapH(W, Hs) * 1.6f : Hs * 0.03f;
-            float availW = W * 0.94f, availH = Hs - 2 * cornerBand;
-            float r = portrait ? 3.1f : 2.3f;          // 시계 카드 높이 ÷ 날짜 카드 높이
-            const float U = 100f;
-
-            // 1) 기준 크기(날짜 카드 높이 100)에서 시계·날짜 줄의 폭
-            float widest = ClockWidth(U * r);
-            if (dOn) widest = Math.Max(widest, DateWidth(U));
-
-            // 정보 글자 크기 (날짜 카드 높이 대비): 가로는 1.1배,
-            // 세로는 날씨·일정 줄이 시계 폭을 넘지 않는 한 최대 1.8배까지 키움
-            float infoK = 1.1f;
-            if (portrait)
-            {
-                float w1, s1w;
-                TopBandWidths(v, U, out w1, out s1w);
-                float need = Math.Max(w1, s1w);
-                infoK = need > 0 ? Math.Max(1.2f, Math.Min(1.8f, widest / need)) : 1.5f;
-            }
-            float dI = U * infoK;
-            float wW, sW;
-            TopBandWidths(v, dI, out wW, out sW);
-            if (portrait) { if (wOn) widest = Math.Max(widest, wW); }
-            else if (wOn && sOn) widest = Math.Max(widest, wW + dI * 0.9f + Math.Min(sW, dI * 5f));
-            else if (wOn) widest = Math.Max(widest, wW);
-
-            // 2) 급식: 이 폭 안에 들어가는 가장 적은 줄 수
-            int lines = 1;
-            if (mOn) while (lines < (portrait ? 6 : 2) && MealWidth(v, dI, lines) > widest) lines++;
-            // 줄을 나눠도 긴 메뉴 이름이 안 들어가면 급식 글자만 줄임 (잘리지 않게)
-            float mealK = mOn ? Math.Min(1f, widest / Math.Max(1f, MealWidth(v, dI, lines))) : 1f;
-            float dM = dI * mealK;
-            float mealLineH = dM * 0.27f * 2.2f;
-
-            // 3) 줄 목록과 높이
-            var kinds = new List<char>();
-            var heights = new List<float>();
-            Action<char, float> add = (k, hgt) => { kinds.Add(k); heights.Add(hgt); };
-            if (portrait) { if (wOn) add('W', dI * 0.95f); if (sOn) add('S', dI * 0.95f); }
-            else if (wOn || sOn) add('T', dI * 0.95f);
-            add('C', U * r);
-            if (dOn) add('D', U);
-            if (mOn) add('M', lines * mealLineH);
-            float gap = U * 0.32f, sum = 0;
-            foreach (var hgt in heights) sum += hgt;
-            sum += gap * (kinds.Count - 1);
-
-            // 4) 화면에 맞춰 한 번에 키우기
-            float scale = Math.Min(availW / widest, availH / sum);
-            float extra = availH - sum * scale;                                     // 남는 높이
-            float gapS = gap * scale;
-            if (kinds.Count > 1) gapS += Math.Min(extra / (kinds.Count - 1), U * scale * 1.6f);
-            float total = 0;
-            foreach (var hgt in heights) total += hgt * scale;
-            total += gapS * (kinds.Count - 1);
-
-            float ox = b.X + W / 2f + drift.X * W * 0.25f;                          // 꽉 채우므로 이동 폭은 작게
-            float oy = b.Y + Hs / 2f + drift.Y * Math.Min(Hs * 0.25f, cornerBand * 0.5f);
-            float y = oy - total / 2f;
-            float dh = U * scale, dIs = dI * scale, hC = U * r * scale;
-
+            float availW = W * 0.94f;
+            float cx = b.X + W / 2f + drift.X * W * 0.25f;
+            float shiftY = drift.Y * H * 0.2f;
+            int groups = Cfg.ShowSeconds ? 3 : 2;
             rotating = false; mealRotating = false; swapping = false; panelAlt = false;
+            float corner = H * (portrait ? 0.022f : 0.04f);
 
-            // 세로 화면의 날씨·일정 두 줄은 10분마다 위아래 자리를 바꿈 (번인 방지)
-            bool sw = false, prevSw = false; float st = 1f;
-            if (portrait && wOn && sOn) { swapping = true; SwapState(now, out sw, out prevSw, out st); }
-            bool schedOnTop = st < 0.5f ? prevSw : sw;
-            float flipY = st >= 1f ? 1f : (float)Math.Abs(Math.Cos(st * Math.PI));
-
-            for (int i = 0; i < kinds.Count; i++)
+            if (!portrait)
             {
-                float hgt = heights[i] * scale;
-                char k = kinds[i];
-                if ((k == 'W' || k == 'S') && wOn && sOn && schedOnTop) k = k == 'W' ? 'S' : 'W';
-                switch (k)
+                float topH = (wOn || sOn || dOn) ? H * 0.158f : 0f;
+                float mealH = mOn ? H * 0.07f : 0f;
+                float gap1 = topH > 0 ? H * 0.014f : 0f, gap2 = mOn ? H * 0.012f : 0f, bottom = H * 0.008f;
+                float hMax = H - corner - topH - gap1 - gap2 - mealH - bottom;
+                float h, r;
+                FocusDims(availW, Math.Min(hMax, H * 0.82f), groups, out h, out r);
+                float extra = hMax - h;                                           // 4:3 처럼 시계가 줄어든 만큼 위·아래 띠에 나눠 줌
+                if (extra > 0) { if (topH > 0) topH += extra * 0.6f; if (mealH > 0) mealH += extra * 0.4f; else topH += extra * 0.4f; }
+                float y = corner + shiftY;
+
+                // ── 위 띠: 날짜 | 날씨 + 일정 ──
+                if (topH > 0)
                 {
-                    case 'T': DrawTopBand(g, v, ox, y + hgt / 2f, dIs, availW, now); break;
-                    case 'W':
-                    case 'S':
-                        if (flipY >= 0.03f)
-                        {
-                            var gs = g.Save();
-                            float cy = y + hgt / 2f;
-                            if (flipY < 0.999f) { g.TranslateTransform(0, cy); g.ScaleTransform(1, flipY); g.TranslateTransform(0, -cy); }
-                            DrawTopBandContent(g, v, ox, cy, dIs, availW, now, false, k == 'W' ? 1 : 2);
-                            g.Restore(gs);
-                        }
-                        break;
-                    case 'C': DrawClockRow(g, ox, y, hC, now); break;
-                    case 'D': DrawDateRow(g, ox, y, dh, now); break;
-                    case 'M':
-                        mealLinesForced = lines;
-                        DrawMealBand(g, v, ox, y, dM * scale, availW / 0.86f, now);
-                        mealLinesForced = 0;
-                        break;
+                    float x0 = b.X + W * 0.035f, x1 = b.X + W - W * 0.035f;
+                    float rightX0 = x0, rightW = x1 - x0;
+                    if (dOn)
+                    {
+                        float dW = DateBlockWidth(topH, false);
+                        DrawDateBlock(g, x0, y, topH, false);
+                        float divX = x0 + dW + W * 0.025f;
+                        if (wOn || sOn)
+                            using (var pen = new Pen(Color.FromArgb(60, Muted), Math.Max(1f, topH * 0.012f)))
+                                g.DrawLine(pen, divX, y + topH * 0.12f, divX, y + topH * 0.88f);
+                        rightX0 = divX + W * 0.025f; rightW = x1 - rightX0;
+                    }
+                    if (wOn || sOn)
+                    {
+                        float wW, sW;
+                        TopBandWidths(v, 100f, out wW, out sW);
+                        float need100 = wW + sW + ((wOn && sOn) ? 90f : 0f);
+                        float dh = Math.Min(topH / 0.95f, need100 > 0 ? rightW / need100 * 100f : topH);
+                        DrawTopBand(g, v, rightX0 + rightW / 2f, y + topH / 2f, dh, rightW, now);
+                    }
+                    y += topH + gap1;
                 }
-                y += hgt + gapS;
+
+                // ── 시계 ──
+                DrawClockRowC(g, cx, y, h, r, now);
+                y += h + gap2;
+
+                // ── 급식 (시계 아래) ──
+                if (mOn) DrawFocusMeal(g, v, cx, y, mealH, availW, 2, mealH * 0.46f, now);
+            }
+            else
+            {
+                // 세로: 모서리 / 날짜 / 날씨 / 일정 / 시계(두 줄 이상) / 급식
+                float dateH = dOn ? H * 0.0625f : 0f, wsH = H * 0.0535f;
+                var rows = new List<char>();
+                if (dOn) rows.Add('D');
+                if (wOn) rows.Add('W');
+                if (sOn) rows.Add('S');
+                float infoH = 0f;
+                foreach (var rk in rows) infoH += rk == 'D' ? dateH : wsH;
+                float mealH = mOn ? H * 0.073f : 0f, bottom = H * 0.008f;
+                int sections = rows.Count + (mOn ? 1 : 0) + 1;                    // 간격 수 계산용 (+시계)
+                float gapBase = H * 0.0072f;
+                float clockTotal = H - corner - infoH - mealH - bottom - gapBase * sections;
+                float rowGap = H * 0.015f;
+                float h = (clockTotal - (groups - 1) * rowGap) / groups;
+                float cg = 0.025f * h;
+                float w = Math.Min(0.78f * h, (availW - cg) / 2f);
+                h = Math.Min(h, w / 0.55f);                                       // 카드가 너무 넓어지지 않게
+                float used = infoH + mealH + bottom + corner + h * groups + rowGap * (groups - 1);
+                float gap = (H - used) / sections;                                // 남는 높이는 간격으로 고르게
+
+                float y = corner + shiftY;
+                // 날씨·일정 줄은 10분마다 위아래 자리를 바꿈 (번인 방지)
+                bool sw = false, prevSw = false; float st = 1f;
+                if (wOn && sOn) { swapping = true; SwapState(now, out sw, out prevSw, out st); }
+                bool schedOnTop = st < 0.5f ? prevSw : sw;
+                float flipY = st >= 1f ? 1f : (float)Math.Abs(Math.Cos(st * Math.PI));
+                float x0 = b.X + W * 0.04f;
+
+                foreach (var rk0 in rows)
+                {
+                    char rk = rk0;
+                    if ((rk == 'W' || rk == 'S') && wOn && sOn && schedOnTop) rk = rk == 'W' ? 'S' : 'W';
+                    float rh = rk0 == 'D' ? dateH : wsH;
+                    if (rk == 'D') DrawDateBlock(g, cx, y, rh, true);
+                    else if (flipY >= 0.03f)
+                    {
+                        var gs = g.Save();
+                        float ccy = y + rh / 2f;
+                        if (flipY < 0.999f) { g.TranslateTransform(0, ccy); g.ScaleTransform(1, flipY); g.TranslateTransform(0, -ccy); }
+                        DrawTopBandContent(g, v, cx, ccy, rh / 0.95f, availW, now, false, rk == 'W' ? 1 : 2);
+                        g.Restore(gs);
+                    }
+                    y += rh + gap;
+                }
+                DrawClockStack(g, cx, y, h, w, rowGap, now);
+                y += h * groups + rowGap * (groups - 1) + gap;
+                if (mOn) DrawFocusMeal(g, v, cx, y, mealH, availW, 4, mealH * 0.30f, now);
             }
         }
 
@@ -1120,7 +1265,7 @@ namespace BaejeongFlip
 
         void DrawMealBand(Graphics g, InfoView v, float cx, float top, float dh, float W, long now)
         {
-            float s = dh * 0.27f, lineH = s * 2.2f, maxW = W * 0.86f, gap = s * 0.7f;
+            float s = dh * 0.27f, lineH = s * mealLineK, maxW = W * 0.86f, gap = s * 0.7f;
             string sepT = " · ";
             int n = v.MealMenus.Count;
             // 끼니마다 줄 나누기, 그리고 가장 넓은 것 기준으로 왼쪽 위치 고정 (넘길 때 옆으로 흔들리지 않게)
@@ -1265,8 +1410,18 @@ namespace BaejeongFlip
             {
                 g.Clear(Bg);
                 driftScale = 1f;
-                PaintContent(g, bounds, now);
-                DrawCorners(g, bounds, now, false);
+                if (Cfg.DisplaySize == 1)
+                {
+                    PaintFocus(g, bounds, now);
+                    cornerMargin = Math.Max(8f, bounds.Height * 0.012f);
+                    DrawCorners(g, bounds, now, false, true);
+                    cornerMargin = 0f;
+                }
+                else
+                {
+                    PaintContent(g, bounds, now);
+                    DrawCorners(g, bounds, now, false);
+                }
             }
         }
 
@@ -1290,7 +1445,6 @@ namespace BaejeongFlip
         {
             float W = bounds.Width, Hs = bounds.Height;
             if (W < 10 || Hs < 10) return;
-            if (Cfg.DisplaySize == 1 && driftScale != 0f) { PaintBig(g, bounds, now); return; }
 
             // ── 크기 계산 (웹 버전과 같은 비율) ──
             bool portrait = Hs > W;
@@ -1346,7 +1500,7 @@ namespace BaejeongFlip
             if (Cfg.ShowDate) DrawDateRow(g, ox, top + h + dateGapV, dh, now);
         }
 
-        // ── 시계 줄 / 날짜 줄 (기본 화면과 큰 화면이 함께 씀) ──
+        // ── 시계 줄 / 날짜 줄 (기본 화면용) ──
         float ClockWidth(float h)
         {
             float w = h * 0.7f, cardGap = w * 0.06f, groupGap = w * 0.12f, colonW = h * 0.06f + w * 0.12f;
@@ -1430,20 +1584,24 @@ namespace BaejeongFlip
         }
 
         // 모서리 문구(학교·부서) 글자 높이: 화면의 짧은 변 기준으로 고정.
-        // 기본 화면·큰 화면, 가로·세로 어느 경우에도 기본 화면(가로)과 같은 크기 (1080p 에서 약 22px)
+        // 기본 화면·시계 중심 화면, 가로·세로 어느 경우에도 같은 크기 (1080p 에서 약 22px)
         static float CornerCapH(float W, float Hs) { return Math.Max(6f, Math.Min(40f, Math.Min(W, Hs) * 0.02f)); }
 
         // ── 모서리 문구: 10분마다 자리를 바꿔 번인 방지. 사진 배경일 때는 위쪽 두 모서리만 쓰고 그림자를 넣음 ──
-        void DrawCorners(Graphics g, Rectangle bounds, long now, bool onPhoto)
+        float cornerMargin;                   // 0 이면 자동, 아니면 모서리 여백 지정 (시계 중심 화면)
+
+        void DrawCorners(Graphics g, Rectangle bounds, long now, bool onPhoto) { DrawCorners(g, bounds, now, onPhoto, onPhoto); }
+
+        void DrawCorners(Graphics g, Rectangle bounds, long now, bool onPhoto, bool topOnly)
         {
             float W = bounds.Width, Hs = bounds.Height;
             float capH = CornerCapH(W, Hs);
-            float margin = Math.Max(8f, Math.Min(W, Hs) * 0.035f);
+            float margin = cornerMargin > 0f ? cornerMargin : Math.Max(8f, Math.Min(W, Hs) * 0.035f);
             float cdx = Math.Abs(drift.X) * W * 0.3f, cdy = Math.Abs(drift.Y) * Hs * 0.3f; // 자리 안에서도 조금씩 이동
             int layout; float alpha;
             CornerState(now, out layout, out alpha);
             // 모서리 번호: 0 왼쪽 위, 1 오른쪽 위, 2 왼쪽 아래, 3 오른쪽 아래
-            int[][] layouts = onPhoto ? new[] { new[] { 0, 1 }, new[] { 1, 0 }, new[] { 0, 1 }, new[] { 1, 0 } }
+            int[][] layouts = topOnly ? new[] { new[] { 0, 1 }, new[] { 1, 0 }, new[] { 0, 1 }, new[] { 1, 0 } }
                                       : new[] { new[] { 0, 1 }, new[] { 2, 3 }, new[] { 1, 0 }, new[] { 3, 2 } };
             if (alpha > 0.01f)
             {
@@ -1631,7 +1789,7 @@ namespace BaejeongFlip
             ClientSize = new Size(1028, 548);
 
             var gClock = new GroupBox { Text = "시계", Left = 12, Top = 8, Width = 496, Height = 94 };
-            cDisp = Combo(100, 58, 250, new[] { "기본 화면", "큰 화면 (멀리서도 보이게 꽉 채움)" }, cfg.DisplaySize, 0);
+            cDisp = Combo(100, 58, 250, new[] { "기본 화면", "시계 중심 화면 (시계를 화면의 70%로)" }, cfg.DisplaySize, 0);
             gClock.Controls.AddRange(new Control[] {
                 c24 = C("24시간 형식", cfg.H24, 16, 26), cSec = C("초 표시", cfg.ShowSeconds, 150, 26), cDate = C("날짜·요일 표시", cfg.ShowDate, 260, 26),
                 L("화면 크기", 16, 58), cDisp,
