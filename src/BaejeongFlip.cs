@@ -2035,6 +2035,7 @@ namespace BaejeongFlip
     static class Program
     {
         [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
+        [DllImport("user32.dll")] static extern bool LockWorkStation();
 
         [STAThread]
         static void Main(string[] args)
@@ -2101,6 +2102,10 @@ namespace BaejeongFlip
                 foreach (var scr in Screen.AllScreens)
                     new SaverForm(scr.Bounds, cfg, IntPtr.Zero).Show();
                 Application.Run();
+                // "/s /lock": 바로 가기·단축키로 직접 실행했을 때, 화면보호기가 끝나면 PC를 잠가 로그인 화면으로 넘김
+                // (대기 시간으로 켜진 경우의 잠금은 Windows 가 처리하므로 이 옵션은 쓰지 않음)
+                if (Array.Exists(args, a => string.Equals(a, "/lock", StringComparison.OrdinalIgnoreCase)))
+                    try { LockWorkStation(); } catch { }
             }
             else if (mode == "/p")
             {
