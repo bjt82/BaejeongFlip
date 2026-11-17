@@ -7,6 +7,7 @@ Unicode true
 !include "MUI2.nsh"
 !include "nsDialogs.nsh"
 !include "LogicLib.nsh"
+!include "FileFunc.nsh"
 
 !ifndef VERSION
   !define VERSION "1.0"
@@ -46,6 +47,7 @@ VIAddVersionKey /LANG=1042 "LegalCopyright" "MIT License, ${PUBLISHER}"
 
 Var Minutes
 Var TimeoutList
+Var IsUpdate          ; "/S /UPDATE" 로 실행되면 1: 설정 창의 [업데이트] 버튼이 호출하는 조용한 업데이트 모드
 
 ; ── 화면 ──
 !define MUI_ABORTWARNING
@@ -78,6 +80,13 @@ Page custom TimeoutPage TimeoutLeave
 ; ── 대기 시간 고르기 ──
 Function .onInit
   StrCpy $Minutes "5"
+  StrCpy $IsUpdate "0"
+  ${GetParameters} $R0
+  ClearErrors
+  ${GetOptions} $R0 "/UPDATE" $R1
+  ${IfNot} ${Errors}
+    StrCpy $IsUpdate "1"
+  ${EndIf}
 FunctionEnd
 
 Function TimeoutPage
@@ -120,7 +129,31 @@ FunctionEnd
 ; ── 설치 ──
 Section "Install"
   SetOutPath "$INSTDIR"
+
+  ; 업데이트: 실행 중인 파일도 이름은 바꿀 수 있으므로, 이전 파일을 .bak 으로 옮겨 두고 새 파일을 넣는다 (실패 시 되돌림용)
+  ${If} $IsUpdate == "1"
+    Delete "$INSTDIR\BaejeongFlip.scr.bak"
+    ClearErrors
+    Rename "$INSTDIR\BaejeongFlip.scr" "$INSTDIR\BaejeongFlip.scr.bak"
+    ${If} ${Errors}
+      Delete "$INSTDIR\BaejeongFlip.scr.bak2"
+      Rename "$INSTDIR\BaejeongFlip.scr" "$INSTDIR\BaejeongFlip.scr.bak2"
+    ${EndIf}
+  ${EndIf}
+
   File "/oname=BaejeongFlip.scr" "${SCR}"
+
+  ; 업데이트: 새 파일이 제대로 도는지 시험 → 실패하면 이전 파일로 되돌리고 중단
+  ${If} $IsUpdate == "1"
+    ExecWait '"$INSTDIR\BaejeongFlip.scr" /selftest' $0
+    ${If} $0 != 0
+      Delete "$INSTDIR\BaejeongFlip.scr"
+      Rename "$INSTDIR\BaejeongFlip.scr.bak" "$INSTDIR\BaejeongFlip.scr"
+      Rename "$INSTDIR\BaejeongFlip.scr.bak2" "$INSTDIR\BaejeongFlip.scr"
+      SetErrorLevel 3
+      Abort
+    ${EndIf}
+  ${EndIf}
 !ifdef KEYFILE
   File "/oname=neis-key.txt" "${KEYFILE}"
 !endif
@@ -132,8 +165,22 @@ Section "Install"
   RMDir /r "$LOCALAPPDATA\FlipClock"
 
   ; 화면보호기로 지정하고 대기 시간 적용
-  IntOp $1 $Minutes * 60
-  ExecWait '"$INSTDIR\BaejeongFlip.scr" /install $1'
+  ; (업데이트 때는 이미 지정된 화면보호기·대기 시간을 그대로 두고, 지정이 풀려 있을 때만 다시 지정)
+  ${If} $IsUpdate == "1"
+    ReadRegStr $3 HKCU "Control Panel\Desktop" "SCRNSAVE.EXE"
+    ${If} $3 == "$INSTDIR\BaejeongFlip.scr"
+      ; 그대로 둠
+    ${Else}
+      ReadRegStr $4 HKCU "Control Panel\Desktop" "ScreenSaveTimeOut"
+      ${If} $4 == ""
+        StrCpy $4 "300"
+      ${EndIf}
+      ExecWait '"$INSTDIR\BaejeongFlip.scr" /install $4'
+    ${EndIf}
+  ${Else}
+    IntOp $1 $Minutes * 60
+    ExecWait '"$INSTDIR\BaejeongFlip.scr" /install $1'
+  ${EndIf}
 
   ; 인증키 파일을 바로 암호화 저장(파일은 자동 삭제)하고, 일정·급식·날씨를 미리 받아 둠
   Exec '"$INSTDIR\BaejeongFlip.scr" /fetch'
@@ -153,7 +200,12 @@ Section "Install"
   ; 학교·회사 정책으로 화면보호기가 고정된 PC 안내
   ReadRegStr $2 HKCU "Software\Policies\Microsoft\Windows\Control Panel\Desktop" "SCRNSAVE.EXE"
   ${If} $2 != ""
-    MessageBox MB_ICONEXCLAMATION|MB_OK "이 PC는 관리자 정책으로 화면보호기가 고정되어 있습니다.$\r$\n설치는 되었지만 정책 때문에 배정플립이 쓰이지 않을 수 있습니다."
+    MessageBox MB_ICONEXCLAMATION|MB_OK "이 PC는 관리자 정책으로 화면보호기가 고정되어 있습니다.$\r$\n설치는 되었지만 정책 때문에 배정플립이 쓰이지 않을 수 있습니다." /SD IDOK
+  ${EndIf}
+
+  ; 업데이트가 끝나면 새 버전의 설정 창을 다시 열어 줌 (왼쪽 아래 문구로 새 버전 확인)
+  ${If} $IsUpdate == "1"
+    Exec '"$INSTDIR\BaejeongFlip.scr" /c'
   ${EndIf}
 SectionEnd
 
@@ -169,6 +221,8 @@ FunctionEnd
 Section "Uninstall"
   ExecWait '"$INSTDIR\BaejeongFlip.scr" /uninstall'
   Delete "$INSTDIR\BaejeongFlip.scr"
+  Delete "$INSTDIR\BaejeongFlip.scr.bak"
+  Delete "$INSTDIR\BaejeongFlip.scr.bak2"
   Delete "$INSTDIR\neis-key.txt"
   Delete "$INSTDIR\info-cache.json"
   Delete "$INSTDIR\uninstall.exe"

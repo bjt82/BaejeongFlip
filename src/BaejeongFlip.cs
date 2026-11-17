@@ -17,16 +17,16 @@ using Microsoft.Win32;
 [assembly: AssemblyDescription("배정고등학교 플립시계 화면보호기")]
 [assembly: AssemblyProduct("배정플립")]
 [assembly: AssemblyCompany("배정고등학교 교육연구부")]
-[assembly: AssemblyVersion("1.4.0.0")]
-[assembly: AssemblyFileVersion("1.4.0.0")]
-[assembly: AssemblyInformationalVersion("1.4")]
+[assembly: AssemblyVersion("1.5.0.0")]
+[assembly: AssemblyFileVersion("1.5.0.0")]
+[assembly: AssemblyInformationalVersion("1.5")]
 
 namespace BaejeongFlip
 {
     // ───────────────────────── 설정 ─────────────────────────
     class Settings
     {
-        public const string AppName = "배정플립", Version = "1.4";
+        public const string AppName = "배정플립", Version = "1.5";
         const string Key = @"Software\BaejeongFlip";
         const string OldKey = @"Software\FlipClockSaver";     // 이름을 바꾸기 전(플립시계) 설정 위치
         public bool H24 = true, ShowSeconds = false, ShowDate = true;
@@ -1967,7 +1967,53 @@ namespace BaejeongFlip
             };
             ok.Click += (s, e) => { Collect(cfg).Save(); DialogResult = DialogResult.OK; Close(); };
 
-            Controls.AddRange(new Control[] { gClock, gCorner, gBg, gSchool, gW, test, hint, ok, cancel });
+            
+            // ── 업데이트: 버튼 한 번으로 GitHub 의 새 버전을 받아 설치 ──
+            var upd = new Button { Text = "업데이트 확인", Left = 470, Top = 502, Width = 120, Height = 34 };
+            var updInfo = new Label { Left = 598, Top = 505, Width = 230, Height = 30, AutoEllipsis = false, ForeColor = SystemColors.GrayText,
+                                      Text = "현재 " + Settings.AppName + " " + Settings.Version };
+            string foundVer = null; bool busy = false;
+            Action<string> say = t => { if (!IsDisposed) BeginInvoke(new Action(() => { updInfo.Text = t; })); };
+            upd.Click += (s, e) =>
+            {
+                if (busy) return;
+                busy = true; upd.Enabled = false;
+                if (foundVer == null)
+                {
+                    updInfo.Text = "확인하는 중…";
+                    new System.Threading.Thread(() =>
+                    {
+                        string err; string v = Updater.CheckLatest(out err);
+                        if (IsDisposed) return;
+                        BeginInvoke(new Action(() =>
+                        {
+                            busy = false; upd.Enabled = true;
+                            if (v == null) updInfo.Text = "확인 실패: " + err;
+                            else if (Updater.IsNewer(v, Settings.Version))
+                            {
+                                foundVer = v; upd.Text = "지금 업데이트";
+                                updInfo.Text = "새 버전 " + v + " 이(가) 있습니다.";
+                            }
+                            else updInfo.Text = "현재 " + Settings.Version + " — 최신 버전입니다.";
+                        }));
+                    }) { IsBackground = true }.Start();
+                }
+                else
+                {
+                    string ver = foundVer;
+                    new System.Threading.Thread(() =>
+                    {
+                        string err = Updater.DownloadAndStart(ver, say);
+                        if (IsDisposed) return;
+                        BeginInvoke(new Action(() =>
+                        {
+                            if (err == null) { updInfo.Text = "업데이트를 시작합니다."; Application.Exit(); return; }
+                            busy = false; upd.Enabled = true; updInfo.Text = err;
+                        }));
+                    }) { IsBackground = true }.Start();
+                }
+            };
+            Controls.AddRange(new Control[] { gClock, gCorner, gBg, gSchool, gW, test, hint, upd, updInfo, ok, cancel });
             AcceptButton = ok; CancelButton = cancel;
         }
 
@@ -2082,6 +2128,8 @@ namespace BaejeongFlip
         static void Main(string[] args)
         {
             string mode = "/c", arg = null;
+            // 업데이트 설치 파일이 새 파일을 시험해 볼 때 사용: 한 장 그려 보고 정상이면 0 으로 끝남
+            if (args.Length > 0 && string.Equals(args[0], "/selftest", StringComparison.OrdinalIgnoreCase)) { Environment.Exit(SelfTest()); return; }
             if (args.Length > 0)
             {
                 string a0 = args[0].Trim();
@@ -2159,6 +2207,20 @@ namespace BaejeongFlip
             {
                 Application.Run(new ConfigForm());
             }
+        }
+
+        static int SelfTest()
+        {
+            try
+            {
+                var cfg = new Settings();
+                var r = new ClockRenderer(cfg);
+                r.Update(DateTime.Now, -100000);
+                using (var bmp = new Bitmap(480, 270))
+                using (var g = Graphics.FromImage(bmp)) r.Paint(g, new Rectangle(0, 0, 480, 270), 0);
+                return 0;
+            }
+            catch { return 1; }
         }
 
         [DllImport("user32.dll")] static extern bool SystemParametersInfo(int action, int param, IntPtr pv, int winIni);
