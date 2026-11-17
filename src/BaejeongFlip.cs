@@ -1129,6 +1129,15 @@ namespace BaejeongFlip
             mealLinesForced = 0; mealLineK = 2.2f;
         }
 
+        // 시계 중심 화면: 아래쪽 모서리의 버전 표기와 겹치지 않도록 급식 띠 폭을 줄임
+        float MealW(float availW, Rectangle b)
+        {
+            float capH = CornerCapH(b.Width, b.Height) * 0.8f;
+            float lw = TextPath("corner", Settings.AppName + " " + Settings.Version, capH).GetBounds().Width;
+            float m = Math.Max(8f, b.Height * 0.012f) + Math.Abs(drift.X) * b.Width * 0.3f;
+            return Math.Min(availW, b.Width - 2f * (lw + m + b.Width * 0.01f));
+        }
+
         void PaintFocus(Graphics g, Rectangle b, long now)
         {
             float W = b.Width, H = b.Height;
@@ -1185,7 +1194,7 @@ namespace BaejeongFlip
                 y += h + gap2;
 
                 // ── 급식 (시계 아래) ──
-                if (mOn) DrawFocusMeal(g, v, cx, y, mealH, availW, 2, mealH * 0.46f, now);
+                if (mOn) DrawFocusMeal(g, v, cx, y, mealH, MealW(availW, b), 2, mealH * 0.46f, now);
             }
             else
             {
@@ -1235,7 +1244,7 @@ namespace BaejeongFlip
                 }
                 DrawClockStack(g, cx, y, h, w, rowGap, now);
                 y += h * groups + rowGap * (groups - 1) + gap;
-                if (mOn) DrawFocusMeal(g, v, cx, y, mealH, availW, 4, mealH * 0.30f, now);
+                if (mOn) DrawFocusMeal(g, v, cx, y, mealH, MealW(availW, b), 4, mealH * 0.30f, now);
             }
         }
 
@@ -1431,13 +1440,15 @@ namespace BaejeongFlip
         float driftScale = 1f;
 
         // 시계 판 위치: 화면의 30~46% 크기, 오른쪽 아래 / 왼쪽 아래 / 10분마다 번갈아. 판 자체도 1분마다 조금씩 이동
+        bool PanelLeft(long now) { return Cfg.PanelPos == 1 || (Cfg.PanelPos == 2 && ((now + CornerOffsetMs + CornerMs / 2) / CornerMs) % 2 == 1); }
+
         RectangleF PanelRect(Rectangle b, long now)
         {
             float[] sizes = { 0.34f, 0.42f, 0.50f };
             float f = sizes[Math.Max(0, Math.Min(2, Cfg.PanelSize))];
             float pw = b.Width * f, ph = b.Height * f;
             float m = Math.Min(b.Width, b.Height) * 0.035f;
-            bool left = Cfg.PanelPos == 1 || (Cfg.PanelPos == 2 && ((now + CornerOffsetMs + CornerMs / 2) / CornerMs) % 2 == 1);
+            bool left = PanelLeft(now);
             float dx = Math.Abs(drift.X) * b.Width * 0.35f, dy = Math.Abs(drift.Y) * b.Height * 0.35f;
             float x = left ? b.X + m + dx : b.Right - m - pw - dx;
             float y = b.Bottom - m - ph - dy;
@@ -1625,6 +1636,33 @@ namespace BaejeongFlip
                     DrawCorner(g, b, Cfg.LeftText, layouts[layout][0], bounds, capH, margin, cdx, cdy);
                     DrawCorner(g, b, Cfg.RightText, layouts[layout][1], bounds, capH, margin, cdx, cdy);
                 }
+            }
+            DrawVersion(g, bounds, now, onPhoto, topOnly, layouts[layout][0], capH, margin, cdx, cdy, alpha);
+        }
+
+        // 남은 모서리에 "배정플립 1.5" 표기 (설치된 버전을 알아보기 위함)
+        //  - 기본 화면: 학교 이름 모서리의 대각선 반대편 (학교·부서와 함께 10분마다 자리 이동)
+        //  - 사진 배경: 시계 판의 반대쪽 아래 모서리
+        //  - 시계 중심 화면: 아래쪽 모서리 (학교 이름의 반대 대각선)
+        void DrawVersion(Graphics g, Rectangle bounds, long now, bool onPhoto, bool topOnly, int schoolCorner,
+                         float capH, float margin, float cdx, float cdy, float alpha)
+        {
+            string text = Settings.AppName + " " + Settings.Version;
+            int corner = onPhoto ? (PanelLeft(now) ? 3 : 2) : 3 - schoolCorner;
+            if (!onPhoto && topOnly) corner = 2 + (corner & 1);
+            float c = capH * 0.8f;
+            if (onPhoto)
+            {
+                var st = g.Save();
+                float off = Math.Max(1f, c * 0.07f);
+                g.TranslateTransform(off, off);
+                using (var sh = new SolidBrush(Color.FromArgb(150, 0, 0, 0))) DrawCorner(g, sh, text, corner, bounds, c, margin, 0f, 0f);
+                g.Restore(st);
+                using (var b = new SolidBrush(Color.FromArgb(200, 236, 235, 230))) DrawCorner(g, b, text, corner, bounds, c, margin, 0f, 0f);
+            }
+            else
+            {
+                using (var b = new SolidBrush(Color.FromArgb((int)(alpha * 255), Muted))) DrawCorner(g, b, text, corner, bounds, c, margin, cdx, cdy);
             }
         }
     }
