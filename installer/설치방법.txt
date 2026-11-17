@@ -71,6 +71,8 @@ BaejeongFlip.scr 오른쪽 클릭 → "설치" (Windows 11은 "추가 옵션 표
 화면 모서리에 "배정플립 1.5.3" 같은 문구로 설치된 버전이 작게 나옵니다.
 
 [바탕화면 바로 가기로 바로 켜기]
+Setup.exe로 설치할 때 "바탕화면 바로 가기"에 체크하면 자동으로 만들어집니다 (1.5.3부터).
+직접 만들 때는 바로 가기 속성 → 대상 칸에 붙여넣기:
 바로 가기 속성 → 대상 칸에 붙여넣기:
 - 잠금 없이:   "%LOCALAPPDATA%\BaejeongFlip\BaejeongFlip.scr" /s
 - 끝나면 잠금: "%LOCALAPPDATA%\BaejeongFlip\BaejeongFlip.scr" /s /lock
