@@ -17,16 +17,16 @@ using Microsoft.Win32;
 [assembly: AssemblyDescription("배정고등학교 플립시계 화면보호기")]
 [assembly: AssemblyProduct("배정플립")]
 [assembly: AssemblyCompany("배정고등학교 교육연구부")]
-[assembly: AssemblyVersion("1.4.0.0")]
-[assembly: AssemblyFileVersion("1.4.0.0")]
-[assembly: AssemblyInformationalVersion("1.4")]
+[assembly: AssemblyVersion("1.5.0.0")]
+[assembly: AssemblyFileVersion("1.5.0.0")]
+[assembly: AssemblyInformationalVersion("1.5")]
 
 namespace BaejeongFlip
 {
     // ───────────────────────── 설정 ─────────────────────────
     class Settings
     {
-        public const string AppName = "배정플립", Version = "1.4";
+        public const string AppName = "배정플립", Version = "1.5";
         const string Key = @"Software\BaejeongFlip";
         const string OldKey = @"Software\FlipClockSaver";     // 이름을 바꾸기 전(플립시계) 설정 위치
         public bool H24 = true, ShowSeconds = false, ShowDate = true;
@@ -597,6 +597,8 @@ namespace BaejeongFlip
         // 기간 끝 날짜: 같은 달이면 일만 (예: 12/14(월)~17(목))
         static string MdEnd(DateTime s0, DateTime e0) { return s0.Month == e0.Month ? e0.Day + "(" + DowShort[(int)e0.DayOfWeek] + ")" : Md(e0); }
 
+        const double DinnerOnlyHour = 13.0;       // 이 시각부터 자정까지는 오늘 석식만 표시
+
         InfoView BuildInfoView()
         {
             var v = new InfoView();
@@ -665,11 +667,13 @@ namespace BaejeongFlip
 
             if (Cfg.ShowMeal && d.Meals != null && d.Meals.Count > 0)
             {
-                // 19시 전에는 오늘, 그 뒤(또는 오늘 급식이 없으면)는 다음 급식일의 점심·저녁을 번갈아 표시
+                // 시간대별 급식 표시
+                //  - 오늘 급식이 있으면: 13시 전에는 점심·저녁을 번갈아, 13시 이후에는 오늘 저녁만 (자정이 지나 날짜가 바뀌면 다시 점심·저녁)
+                //  - 오늘 급식이 없으면(주말·휴일): 다음 급식일의 점심·저녁을 번갈아
                 string todayS = today.ToString("yyyyMMdd");
                 double hour = shown.Hour + shown.Minute / 60.0;
                 string day = null;
-                if (hour < 19.0 && d.Meals.Exists(m => m.Date == todayS)) day = todayS;
+                if (d.Meals.Exists(m => m.Date == todayS)) day = todayS;
                 else foreach (var m in d.Meals) if (string.CompareOrdinal(m.Date, todayS) > 0) { day = m.Date; break; }
                 if (day != null)
                 {
@@ -678,9 +682,8 @@ namespace BaejeongFlip
                     var picks = d.Meals.FindAll(m => m.Date == day && (m.Kind == "중식" || m.Kind == "석식"));
                     if (picks.Count == 0) picks = d.Meals.FindAll(m => m.Date == day);
                     picks.Sort((a, b) => InfoService.KindOrder(a.Kind) - InfoService.KindOrder(b.Kind));
-                    // 오늘 점심시간이 지났으면 저녁부터 보여 줌
-                    if (md == today && hour >= 13.5 && picks.Count > 1 && picks[0].Kind == "중식") picks.Add(picks[0]); 
-                    if (md == today && hour >= 13.5 && picks.Count > 2) picks.RemoveAt(0);
+                    // 점심시간이 지난 오늘은 저녁만 (저녁이 없으면 급식 줄을 표시하지 않음)
+                    if (md == today && hour >= DinnerOnlyHour) picks = picks.FindAll(m => m.Kind == "석식");
                     foreach (var pk in picks)
                     {
                         string kind = pk.Kind == "중식" ? "점심" : pk.Kind == "석식" ? "저녁" : pk.Kind == "조식" ? "아침" : pk.Kind;
@@ -1126,6 +1129,15 @@ namespace BaejeongFlip
             mealLinesForced = 0; mealLineK = 2.2f;
         }
 
+        // 시계 중심 화면: 아래쪽 모서리의 버전 표기와 겹치지 않도록 급식 띠 폭을 줄임
+        float MealW(float availW, Rectangle b)
+        {
+            float capH = CornerCapH(b.Width, b.Height) * 0.8f;
+            float lw = TextPath("corner", Settings.AppName + " " + Settings.Version, capH).GetBounds().Width;
+            float m = Math.Max(8f, b.Height * 0.012f) + Math.Abs(drift.X) * b.Width * 0.3f;
+            return Math.Min(availW, b.Width - 2f * (lw + m + b.Width * 0.01f));
+        }
+
         void PaintFocus(Graphics g, Rectangle b, long now)
         {
             float W = b.Width, H = b.Height;
@@ -1182,7 +1194,7 @@ namespace BaejeongFlip
                 y += h + gap2;
 
                 // ── 급식 (시계 아래) ──
-                if (mOn) DrawFocusMeal(g, v, cx, y, mealH, availW, 2, mealH * 0.46f, now);
+                if (mOn) DrawFocusMeal(g, v, cx, y, mealH, MealW(availW, b), 2, mealH * 0.46f, now);
             }
             else
             {
@@ -1232,7 +1244,7 @@ namespace BaejeongFlip
                 }
                 DrawClockStack(g, cx, y, h, w, rowGap, now);
                 y += h * groups + rowGap * (groups - 1) + gap;
-                if (mOn) DrawFocusMeal(g, v, cx, y, mealH, availW, 4, mealH * 0.30f, now);
+                if (mOn) DrawFocusMeal(g, v, cx, y, mealH, MealW(availW, b), 4, mealH * 0.30f, now);
             }
         }
 
@@ -1428,13 +1440,15 @@ namespace BaejeongFlip
         float driftScale = 1f;
 
         // 시계 판 위치: 화면의 30~46% 크기, 오른쪽 아래 / 왼쪽 아래 / 10분마다 번갈아. 판 자체도 1분마다 조금씩 이동
+        bool PanelLeft(long now) { return Cfg.PanelPos == 1 || (Cfg.PanelPos == 2 && ((now + CornerOffsetMs + CornerMs / 2) / CornerMs) % 2 == 1); }
+
         RectangleF PanelRect(Rectangle b, long now)
         {
             float[] sizes = { 0.34f, 0.42f, 0.50f };
             float f = sizes[Math.Max(0, Math.Min(2, Cfg.PanelSize))];
             float pw = b.Width * f, ph = b.Height * f;
             float m = Math.Min(b.Width, b.Height) * 0.035f;
-            bool left = Cfg.PanelPos == 1 || (Cfg.PanelPos == 2 && ((now + CornerOffsetMs + CornerMs / 2) / CornerMs) % 2 == 1);
+            bool left = PanelLeft(now);
             float dx = Math.Abs(drift.X) * b.Width * 0.35f, dy = Math.Abs(drift.Y) * b.Height * 0.35f;
             float x = left ? b.X + m + dx : b.Right - m - pw - dx;
             float y = b.Bottom - m - ph - dy;
@@ -1622,6 +1636,33 @@ namespace BaejeongFlip
                     DrawCorner(g, b, Cfg.LeftText, layouts[layout][0], bounds, capH, margin, cdx, cdy);
                     DrawCorner(g, b, Cfg.RightText, layouts[layout][1], bounds, capH, margin, cdx, cdy);
                 }
+            }
+            DrawVersion(g, bounds, now, onPhoto, topOnly, layouts[layout][0], capH, margin, cdx, cdy, alpha);
+        }
+
+        // 남은 모서리에 "배정플립 1.5" 표기 (설치된 버전을 알아보기 위함)
+        //  - 기본 화면: 학교 이름 모서리의 대각선 반대편 (학교·부서와 함께 10분마다 자리 이동)
+        //  - 사진 배경: 시계 판의 반대쪽 아래 모서리
+        //  - 시계 중심 화면: 아래쪽 모서리 (학교 이름의 반대 대각선)
+        void DrawVersion(Graphics g, Rectangle bounds, long now, bool onPhoto, bool topOnly, int schoolCorner,
+                         float capH, float margin, float cdx, float cdy, float alpha)
+        {
+            string text = Settings.AppName + " " + Settings.Version;
+            int corner = onPhoto ? (PanelLeft(now) ? 3 : 2) : 3 - schoolCorner;
+            if (!onPhoto && topOnly) corner = 2 + (corner & 1);
+            float c = capH * 0.8f;
+            if (onPhoto)
+            {
+                var st = g.Save();
+                float off = Math.Max(1f, c * 0.07f);
+                g.TranslateTransform(off, off);
+                using (var sh = new SolidBrush(Color.FromArgb(150, 0, 0, 0))) DrawCorner(g, sh, text, corner, bounds, c, margin, 0f, 0f);
+                g.Restore(st);
+                using (var b = new SolidBrush(Color.FromArgb(200, 236, 235, 230))) DrawCorner(g, b, text, corner, bounds, c, margin, 0f, 0f);
+            }
+            else
+            {
+                using (var b = new SolidBrush(Color.FromArgb((int)(alpha * 255), Muted))) DrawCorner(g, b, text, corner, bounds, c, margin, cdx, cdy);
             }
         }
     }
@@ -1926,7 +1967,53 @@ namespace BaejeongFlip
             };
             ok.Click += (s, e) => { Collect(cfg).Save(); DialogResult = DialogResult.OK; Close(); };
 
-            Controls.AddRange(new Control[] { gClock, gCorner, gBg, gSchool, gW, test, hint, ok, cancel });
+            
+            // ── 업데이트: 버튼 한 번으로 GitHub 의 새 버전을 받아 설치 ──
+            var upd = new Button { Text = "업데이트 확인", Left = 470, Top = 502, Width = 120, Height = 34 };
+            var updInfo = new Label { Left = 598, Top = 505, Width = 230, Height = 30, AutoEllipsis = false, ForeColor = SystemColors.GrayText,
+                                      Text = "현재 " + Settings.AppName + " " + Settings.Version };
+            string foundVer = null; bool busy = false;
+            Action<string> say = t => { if (!IsDisposed) BeginInvoke(new Action(() => { updInfo.Text = t; })); };
+            upd.Click += (s, e) =>
+            {
+                if (busy) return;
+                busy = true; upd.Enabled = false;
+                if (foundVer == null)
+                {
+                    updInfo.Text = "확인하는 중…";
+                    new System.Threading.Thread(() =>
+                    {
+                        string err; string v = Updater.CheckLatest(out err);
+                        if (IsDisposed) return;
+                        BeginInvoke(new Action(() =>
+                        {
+                            busy = false; upd.Enabled = true;
+                            if (v == null) updInfo.Text = "확인 실패: " + err;
+                            else if (Updater.IsNewer(v, Settings.Version))
+                            {
+                                foundVer = v; upd.Text = "지금 업데이트";
+                                updInfo.Text = "새 버전 " + v + " 이(가) 있습니다.";
+                            }
+                            else updInfo.Text = "현재 " + Settings.Version + " — 최신 버전입니다.";
+                        }));
+                    }) { IsBackground = true }.Start();
+                }
+                else
+                {
+                    string ver = foundVer;
+                    new System.Threading.Thread(() =>
+                    {
+                        string err = Updater.DownloadAndStart(ver, say);
+                        if (IsDisposed) return;
+                        BeginInvoke(new Action(() =>
+                        {
+                            if (err == null) { updInfo.Text = "업데이트를 시작합니다."; Application.Exit(); return; }
+                            busy = false; upd.Enabled = true; updInfo.Text = err;
+                        }));
+                    }) { IsBackground = true }.Start();
+                }
+            };
+            Controls.AddRange(new Control[] { gClock, gCorner, gBg, gSchool, gW, test, hint, upd, updInfo, ok, cancel });
             AcceptButton = ok; CancelButton = cancel;
         }
 
@@ -2041,6 +2128,8 @@ namespace BaejeongFlip
         static void Main(string[] args)
         {
             string mode = "/c", arg = null;
+            // 업데이트 설치 파일이 새 파일을 시험해 볼 때 사용: 한 장 그려 보고 정상이면 0 으로 끝남
+            if (args.Length > 0 && string.Equals(args[0], "/selftest", StringComparison.OrdinalIgnoreCase)) { Environment.Exit(SelfTest()); return; }
             if (args.Length > 0)
             {
                 string a0 = args[0].Trim();
@@ -2118,6 +2207,20 @@ namespace BaejeongFlip
             {
                 Application.Run(new ConfigForm());
             }
+        }
+
+        static int SelfTest()
+        {
+            try
+            {
+                var cfg = new Settings();
+                var r = new ClockRenderer(cfg);
+                r.Update(DateTime.Now, -100000);
+                using (var bmp = new Bitmap(480, 270))
+                using (var g = Graphics.FromImage(bmp)) r.Paint(g, new Rectangle(0, 0, 480, 270), 0);
+                return 0;
+            }
+            catch { return 1; }
         }
 
         [DllImport("user32.dll")] static extern bool SystemParametersInfo(int action, int param, IntPtr pv, int winIni);
