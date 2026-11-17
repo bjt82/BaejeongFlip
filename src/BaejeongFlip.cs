@@ -17,16 +17,16 @@ using Microsoft.Win32;
 [assembly: AssemblyDescription("배정고등학교 플립시계 화면보호기")]
 [assembly: AssemblyProduct("배정플립")]
 [assembly: AssemblyCompany("배정고등학교 교육연구부")]
-[assembly: AssemblyVersion("1.5.0.0")]
-[assembly: AssemblyFileVersion("1.5.0.0")]
-[assembly: AssemblyInformationalVersion("1.5")]
+[assembly: AssemblyVersion("1.5.1.0")]
+[assembly: AssemblyFileVersion("1.5.1.0")]
+[assembly: AssemblyInformationalVersion("1.5.1")]
 
 namespace BaejeongFlip
 {
     // ───────────────────────── 설정 ─────────────────────────
     class Settings
     {
-        public const string AppName = "배정플립", Version = "1.5";
+        public const string AppName = "배정플립", Version = "1.5.1";
         const string Key = @"Software\BaejeongFlip";
         const string OldKey = @"Software\FlipClockSaver";     // 이름을 바꾸기 전(플립시계) 설정 위치
         public bool H24 = true, ShowSeconds = false, ShowDate = true;
@@ -667,31 +667,29 @@ namespace BaejeongFlip
 
             if (Cfg.ShowMeal && d.Meals != null && d.Meals.Count > 0)
             {
-                // 시간대별 급식 표시
-                //  - 오늘 급식이 있으면: 13시 전에는 점심·저녁을 번갈아, 13시 이후에는 오늘 저녁만 (자정이 지나 날짜가 바뀌면 다시 점심·저녁)
-                //  - 오늘 급식이 없으면(주말·휴일): 다음 급식일의 점심·저녁을 번갈아
+                // 시간대별 급식 표시 (항상 오늘 기준)
+                //  - 13시 전: 오늘 중식·석식을 번갈아 (없는 끼니는 "오늘 중식 없음" 처럼 표시)
+                //  - 13시부터 자정까지: 오늘 석식만 (없으면 "오늘 석식 없음"), 날짜가 바뀌면 다시 중식·석식
+                //  - 오늘 급식이 아예 없으면(주말·휴일): "오늘 급식 없음"
                 string todayS = today.ToString("yyyyMMdd");
                 double hour = shown.Hour + shown.Minute / 60.0;
-                string day = null;
-                if (d.Meals.Exists(m => m.Date == todayS)) day = todayS;
-                else foreach (var m in d.Meals) if (string.CompareOrdinal(m.Date, todayS) > 0) { day = m.Date; break; }
-                if (day != null)
+                MealDay lunch = d.Meals.Find(m => m.Date == todayS && m.Kind == "중식");
+                MealDay dinner = d.Meals.Find(m => m.Date == todayS && m.Kind == "석식");
+                Action<string, MealDay> add = (kind, m) =>
                 {
-                    DateTime md = Ymd(day);
-                    string dayT = md == today ? "오늘" : md == today.AddDays(1) ? "내일" : Md(md);
-                    var picks = d.Meals.FindAll(m => m.Date == day && (m.Kind == "중식" || m.Kind == "석식"));
-                    if (picks.Count == 0) picks = d.Meals.FindAll(m => m.Date == day);
-                    picks.Sort((a, b) => InfoService.KindOrder(a.Kind) - InfoService.KindOrder(b.Kind));
-                    // 점심시간이 지난 오늘은 저녁만 (저녁이 없으면 급식 줄을 표시하지 않음)
-                    if (md == today && hour >= DinnerOnlyHour) picks = picks.FindAll(m => m.Kind == "석식");
-                    foreach (var pk in picks)
-                    {
-                        string kind = pk.Kind == "중식" ? "점심" : pk.Kind == "석식" ? "저녁" : pk.Kind == "조식" ? "아침" : pk.Kind;
-                        v.MealLabels.Add(dayT + " " + kind);
-                        v.MealMenus.Add(pk.Menu);
-                    }
-                    if (v.MealLabels.Count > 0) { v.MealLabel = v.MealLabels[0]; v.MealMenu = v.MealMenus[0]; }
+                    v.MealLabels.Add("오늘 " + kind);
+                    v.MealMenus.Add(m != null && m.Menu != null && m.Menu.Count > 0 ? m.Menu : new List<string> { "없음" });
+                };
+                if (lunch == null && dinner == null)
+                {
+                    v.MealLabels.Add("오늘 급식"); v.MealMenus.Add(new List<string> { "없음" });
                 }
+                else
+                {
+                    if (hour < DinnerOnlyHour) add("중식", lunch);
+                    add("석식", dinner);
+                }
+                v.MealLabel = v.MealLabels[0]; v.MealMenu = v.MealMenus[0];
             }
             return v;
         }
@@ -1827,7 +1825,7 @@ namespace BaejeongFlip
             MaximizeBox = MinimizeBox = false;
             StartPosition = FormStartPosition.CenterScreen;
             AutoScaleMode = AutoScaleMode.Dpi;
-            ClientSize = new Size(1028, 548);
+            ClientSize = new Size(548, 548);
 
             var gClock = new GroupBox { Text = "시계", Left = 12, Top = 8, Width = 496, Height = 94 };
             cDisp = Combo(100, 58, 250, new[] { "기본 화면", "시계 중심 화면 (시계를 화면의 70%로)" }, cfg.DisplaySize, 0);
@@ -1841,7 +1839,7 @@ namespace BaejeongFlip
                 L("학교", 16, 26), tL = T(cfg.LeftText, 60, 26, 170), L("부서", 250, 26), tR = T(cfg.RightText, 294, 26, 186) });
 
             Button bNeisClear, bKmaClear, bFind;
-            var gSchool = new GroupBox { Text = "학교 정보 · NEIS 교육정보 개방 포털", Left = 520, Top = 8, Width = 496, Height = 218 };
+            var gSchool = new GroupBox { Text = "학교 정보 · NEIS 교육정보 개방 포털", Left = 12, Top = 8, Width = 496, Height = 218 };
             cRot = new ComboBox { Left = 120, Top = 80, Width = 90, DropDownStyle = ComboBoxStyle.DropDownList };
             cSpeed = new ComboBox { Left = 350, Top = 80, Width = 130, DropDownStyle = ComboBoxStyle.DropDownList };
             for (int si = 0; si < SpeedChoices.Length; si++) cSpeed.Items.Add(SpeedNames[si]);
@@ -1852,7 +1850,7 @@ namespace BaejeongFlip
             cRot.SelectedIndex = ri >= 0 ? ri : 1;
             gSchool.Controls.AddRange(new Control[] {
                 cSched = C("학사일정 (시계 위, 오늘 일정과 다가오는 일정)", cfg.ShowSchedule, 16, 24),
-                cMeal = C("급식 메뉴 (날짜 아래, 시간에 맞춰 점심/저녁)", cfg.ShowMeal, 16, 50),
+                cMeal = C("급식 메뉴 (날짜 아래, 시간에 맞춰 중식/석식)", cfg.ShowMeal, 16, 50),
                 L("넘김 간격", 34, 80), cRot,
                 L("넘김 속도", 270, 80), cSpeed,
                 L("교육청 코드", 16, 114), tAtpt = T(cfg.AtptCode, 110, 114, 60),
@@ -1864,7 +1862,7 @@ namespace BaejeongFlip
                 new Label { Text = "새 키를 입력하면 교체, 비워 두면 그대로 유지", Left = 110, Top = 178, AutoSize = true, ForeColor = SystemColors.GrayText },
                 Link("인증키 발급", "https://open.neis.go.kr/portal/guide/actKeyPage.do", 16, 178) });
 
-            var gW = new GroupBox { Text = "날씨 (시계 위)", Left = 520, Top = 234, Width = 496, Height = 220 };
+            var gW = new GroupBox { Text = "날씨 (시계 위)", Left = 12, Top = 234, Width = 496, Height = 220 };
             gW.Controls.AddRange(new Control[] {
                 cWeather = C("날씨 표시", cfg.ShowWeather, 16, 24),
                 rMeteo = new RadioButton { Text = "Open-Meteo (인증키 필요 없음)", Left = 32, Top = 52, AutoSize = true, Checked = cfg.WeatherSource == 0 },
@@ -1877,7 +1875,7 @@ namespace BaejeongFlip
                 new Label { Text = "기본값: 배정고등학교", Left = 330, Top = 175, AutoSize = true, ForeColor = SystemColors.GrayText } });
 
             // 배경 사진
-            var gBg = new GroupBox { Text = "배경", Left = 12, Top = 180, Width = 496, Height = 306 };
+            var gBg = new GroupBox { Text = "배경", Left = 12, Top = 8, Width = 496, Height = 272 };
             Button bBrowse;
             cPhotoSec = Combo(110, 146, 100, PhotoSecNames, Array.IndexOf(PhotoSecChoices, cfg.PhotoSec), 1);
             cFit = Combo(320, 146, 162, new[] { "화면 채우기", "사진 전체 보이기" }, cfg.PhotoFit, 0);
@@ -1902,10 +1900,10 @@ namespace BaejeongFlip
                 }
             };
 
-            var test = new Button { Text = "지금 가져와 보기", Left = 12, Top = 502, Width = 150, Height = 34 };
-            var ok = new Button { Text = "확인", Left = 838, Top = 502, Width = 85, Height = 34 };
-            var cancel = new Button { Text = "취소", Left = 931, Top = 502, Width = 85, Height = 34, DialogResult = DialogResult.Cancel };
-            var hint = new Label { Text = "선택한 정보를 지금 받아 보고 결과를 보여 줍니다.", Left = 170, Top = 511, AutoSize = true, ForeColor = SystemColors.GrayText };
+            var test = new Button { Text = "지금 가져와 보기", Left = 16, Top = 28, Width = 150, Height = 34 };
+            var ok = new Button { Text = "확인", Left = 358, Top = 502, Width = 85, Height = 34 };
+            var cancel = new Button { Text = "취소", Left = 451, Top = 502, Width = 85, Height = 34, DialogResult = DialogResult.Cancel };
+            var hint = new Label { Text = "선택한 정보를 지금 받아 보고 결과를 보여 줍니다.", Left = 176, Top = 37, AutoSize = true, ForeColor = SystemColors.GrayText };
 
             bFind.Click += (s, e) =>
             {
@@ -1969,9 +1967,9 @@ namespace BaejeongFlip
 
             
             // ── 업데이트: 버튼 한 번으로 GitHub 의 새 버전을 받아 설치 ──
-            var upd = new Button { Text = "업데이트 확인", Left = 470, Top = 502, Width = 120, Height = 34 };
-            var updInfo = new Label { Left = 598, Top = 505, Width = 230, Height = 30, AutoEllipsis = false, ForeColor = SystemColors.GrayText,
-                                      Text = "현재 " + Settings.AppName + " " + Settings.Version };
+            var upd = new Button { Text = "업데이트 확인", Left = 16, Top = 54, Width = 130, Height = 34 };
+            var updInfo = new Label { Left = 156, Top = 56, Width = 330, Height = 32, ForeColor = SystemColors.GrayText,
+                                      Text = "버튼을 누르면 GitHub에서 새 버전을 확인합니다." };
             string foundVer = null; bool busy = false;
             Action<string> say = t => { if (!IsDisposed) BeginInvoke(new Action(() => { updInfo.Text = t; })); };
             upd.Click += (s, e) =>
@@ -1994,7 +1992,7 @@ namespace BaejeongFlip
                                 foundVer = v; upd.Text = "지금 업데이트";
                                 updInfo.Text = "새 버전 " + v + " 이(가) 있습니다.";
                             }
-                            else updInfo.Text = "현재 " + Settings.Version + " — 최신 버전입니다.";
+                            else updInfo.Text = "최신 버전입니다.";
                         }));
                     }) { IsBackground = true }.Start();
                 }
@@ -2013,7 +2011,34 @@ namespace BaejeongFlip
                     }) { IsBackground = true }.Start();
                 }
             };
-            Controls.AddRange(new Control[] { gClock, gCorner, gBg, gSchool, gW, test, hint, upd, updInfo, ok, cancel });
+
+            // ── 탭: 화면 / 배경 / 정보 / 업데이트·정보 가져오기 ──
+            Func<string, string> fmtAt = at =>
+            {
+                DateTime t;
+                return at != null && DateTime.TryParseExact(at, "yyyyMMddHHmm", System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.None, out t) ? t.ToString("M월 d일 HH:mm") : "아직 없음";
+            };
+            var cur = InfoService.Current;
+            var gUpd = new GroupBox { Text = "업데이트", Left = 12, Top = 8, Width = 496, Height = 100 };
+            gUpd.Controls.AddRange(new Control[] {
+                new Label { Text = "설치된 버전: " + Settings.AppName + " " + Settings.Version, Left = 16, Top = 26, AutoSize = true, Font = new Font(Font, FontStyle.Bold) },
+                upd, updInfo });
+            var gFetch = new GroupBox { Text = "정보 가져오기", Left = 12, Top = 116, Width = 496, Height = 130 };
+            gFetch.Controls.AddRange(new Control[] {
+                test, hint,
+                new Label { Text = "날씨 마지막 갱신: " + fmtAt(cur == null ? null : cur.WeatherAt) + "  (30분마다 확인)", Left = 16, Top = 76, AutoSize = true, ForeColor = SystemColors.GrayText },
+                new Label { Text = "일정·급식 마지막 갱신: " + fmtAt(cur == null ? null : cur.SchoolAt) + "  (3시간마다, 날짜가 바뀌면 다시)", Left = 16, Top = 98, AutoSize = true, ForeColor = SystemColors.GrayText } });
+            var about = new Label { Text = "배정고등학교 교육연구부 · MIT License", Left = 16, Top = 262, AutoSize = true, ForeColor = SystemColors.GrayText };
+            var aboutLink = Link("github.com/" + Updater.Repo, "https://github.com/" + Updater.Repo, 16, 284);
+
+            var tabs = new TabControl { Left = 4, Top = 4, Width = 540, Height = 488 };
+            var pg1 = new TabPage("화면"); pg1.Controls.AddRange(new Control[] { gClock, gCorner });
+            var pg2 = new TabPage("배경"); pg2.Controls.Add(gBg);
+            var pg3 = new TabPage("학교·날씨 정보"); pg3.Controls.AddRange(new Control[] { gSchool, gW });
+            var pg4 = new TabPage("업데이트"); pg4.Controls.AddRange(new Control[] { gUpd, gFetch, about, aboutLink });
+            foreach (var pg in new[] { pg1, pg2, pg3, pg4 }) { pg.UseVisualStyleBackColor = true; pg.AutoScroll = true; tabs.TabPages.Add(pg); }
+            Controls.AddRange(new Control[] { tabs, ok, cancel });
             AcceptButton = ok; CancelButton = cancel;
         }
 
