@@ -17,16 +17,16 @@ using Microsoft.Win32;
 [assembly: AssemblyDescription("배정고등학교 플립시계 화면보호기")]
 [assembly: AssemblyProduct("배정플립")]
 [assembly: AssemblyCompany("배정고등학교 교육연구부")]
-[assembly: AssemblyVersion("1.5.2.0")]
-[assembly: AssemblyFileVersion("1.5.2.0")]
-[assembly: AssemblyInformationalVersion("1.5.2")]
+[assembly: AssemblyVersion("1.5.3.0")]
+[assembly: AssemblyFileVersion("1.5.3.0")]
+[assembly: AssemblyInformationalVersion("1.5.3")]
 
 namespace BaejeongFlip
 {
     // ───────────────────────── 설정 ─────────────────────────
     class Settings
     {
-        public const string AppName = "배정플립", Version = "1.5.2";
+        public const string AppName = "배정플립", Version = "1.5.3";
         const string Key = @"Software\BaejeongFlip";
         const string OldKey = @"Software\FlipClockSaver";     // 이름을 바꾸기 전(플립시계) 설정 위치
         public bool H24 = true, ShowSeconds = false, ShowDate = true;
@@ -1222,8 +1222,6 @@ namespace BaejeongFlip
                 if (wOn && sOn) { swapping = true; SwapState(now, out sw, out prevSw, out st); }
                 bool schedOnTop = st < 0.5f ? prevSw : sw;
                 float flipY = st >= 1f ? 1f : (float)Math.Abs(Math.Cos(st * Math.PI));
-                float x0 = b.X + W * 0.04f;
-
                 foreach (var rk0 in rows)
                 {
                     char rk = rk0;
@@ -1480,18 +1478,12 @@ namespace BaejeongFlip
 
             float w = h * 0.7f;
             float cardGap = w * 0.06f, groupGap = w * 0.12f, colonW = h * 0.06f + w * 0.12f;
-            float dw = dh * 0.7f;
-            float dCardGap = dw * 0.05f, dUnitGap = dw * 0.35f, dLblGap = dw * 0.12f;
-            float lblH = dh * 0.24f;
-            float lblW = dh * 0.36f;
 
             int groups = Cfg.ShowSeconds ? 3 : 2;
             float groupW = 2 * w + cardGap;
             float ampmW = Cfg.H24 ? 0 : h * 0.16f + groupGap;
             float clockW = ampmW + groups * groupW + (groups - 1) * (colonW + 2 * groupGap);
 
-            float wordW = dh * 2.1f;
-            float dateW = (4 * dw + 3 * dCardGap) + (2 * dw + dCardGap) * 2 + 3 * (dLblGap + lblW) + 3 * dUnitGap + wordW;
             float dateGapV = h * 0.18f;
             float topBandH = topOn ? dh * 0.95f : 0f, topGap = topOn ? h * 0.16f : 0f;
 

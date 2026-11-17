@@ -47,6 +47,10 @@ VIAddVersionKey /LANG=1042 "LegalCopyright" "MIT License, ${PUBLISHER}"
 
 Var Minutes
 Var TimeoutList
+Var ChkShortcut
+Var ChkLockShortcut
+Var WantShortcut        ; 바탕화면에 "배정플립 켜기" 바로가기
+Var WantLockShortcut    ; 바탕화면에 "배정플립 켜고 잠그기" 바로가기
 Var IsUpdate          ; "/S /UPDATE" 로 실행되면 1: 설정 창의 [업데이트] 버튼이 호출하는 조용한 업데이트 모드
 
 ; ── 화면 ──
@@ -79,6 +83,8 @@ Page custom TimeoutPage TimeoutLeave
 Function .onInit
   StrCpy $Minutes "5"
   StrCpy $IsUpdate "0"
+  StrCpy $WantShortcut "1"
+  StrCpy $WantLockShortcut "0"
   ${GetParameters} $R0
   ClearErrors
   ${GetOptions} $R0 "/UPDATE" $R1
@@ -102,12 +108,26 @@ Function TimeoutPage
   ${NSD_CB_AddString} $TimeoutList "15분"
   ${NSD_CB_AddString} $TimeoutList "30분"
   ${NSD_CB_SelectString} $TimeoutList "$Minutes분"
-  ${NSD_CreateLabel} 0 50u 100% 36u "나중에 Windows 화면보호기 설정에서 언제든 바꿀 수 있습니다."
+  ${NSD_CreateLabel} 0 50u 100% 12u "나중에 Windows 화면보호기 설정에서 언제든 바꿀 수 있습니다."
   Pop $0
+  ${NSD_CreateLabel} 0 72u 100% 12u "바탕화면 바로 가기 (기다리지 않고 지금 바로 화면보호기를 켤 때)"
+  Pop $0
+  ${NSD_CreateCheckbox} 8u 88u 100% 12u "배정플립 켜기 (마우스를 움직이면 바로 바탕화면)"
+  Pop $ChkShortcut
+  ${NSD_CreateCheckbox} 8u 104u 100% 12u "배정플립 켜고 잠그기 (끝나면 PC를 잠그고 로그인 화면으로)"
+  Pop $ChkLockShortcut
+  ${If} $WantShortcut == "1"
+    ${NSD_Check} $ChkShortcut
+  ${EndIf}
+  ${If} $WantLockShortcut == "1"
+    ${NSD_Check} $ChkLockShortcut
+  ${EndIf}
   nsDialogs::Show
 FunctionEnd
 
 Function TimeoutLeave
+  ${NSD_GetState} $ChkShortcut $WantShortcut
+  ${NSD_GetState} $ChkLockShortcut $WantLockShortcut
   ${NSD_GetText} $TimeoutList $0
   ${If} $0 == "1분"
     StrCpy $Minutes "1"
@@ -183,6 +203,16 @@ Section "Install"
   ; 인증키 파일을 바로 암호화 저장(파일은 자동 삭제)하고, 일정·급식·날씨를 미리 받아 둠
   Exec '"$INSTDIR\BaejeongFlip.scr" /fetch'
 
+  ; 바탕화면 바로 가기 (업데이트 때는 이미 만든 바로 가기를 그대로 둠)
+  ${If} $IsUpdate != "1"
+    ${If} $WantShortcut == "1"
+      CreateShortCut "$DESKTOP\배정플립 켜기.lnk" "$INSTDIR\BaejeongFlip.scr" "/s" "$INSTDIR\BaejeongFlip.scr" 0
+    ${EndIf}
+    ${If} $WantLockShortcut == "1"
+      CreateShortCut "$DESKTOP\배정플립 켜고 잠그기.lnk" "$INSTDIR\BaejeongFlip.scr" "/s /lock" "$INSTDIR\BaejeongFlip.scr" 0
+    ${EndIf}
+  ${EndIf}
+
   ; Windows "설정 → 앱"에 등록
   WriteUninstaller "$INSTDIR\uninstall.exe"
   WriteRegStr HKCU "${UNINSTKEY}" "DisplayName" "${APPNAME}"
@@ -218,6 +248,8 @@ FunctionEnd
 ; ── 제거 ──
 Section "Uninstall"
   ExecWait '"$INSTDIR\BaejeongFlip.scr" /uninstall'
+  Delete "$DESKTOP\배정플립 켜기.lnk"
+  Delete "$DESKTOP\배정플립 켜고 잠그기.lnk"
   Delete "$INSTDIR\BaejeongFlip.scr"
   Delete "$INSTDIR\BaejeongFlip.scr.bak"
   Delete "$INSTDIR\BaejeongFlip.scr.bak2"

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # 배정플립 빌드 (Linux / Mono) — .NET Framework 4.8 기준 어셈블리로 컴파일해서 Windows에서 그대로 동작하게 함
 # 사용법: ./build.sh            → release/BaejeongFlip.scr
-#         ./build.sh zip        → release/BaejeongFlip-1.0.zip (설치 스크립트 포함)
-#         ./build.sh setup      → release/BaejeongFlip-1.0-Setup.exe (설치 마법사, NSIS 필요)
+#         ./build.sh zip        → release/BaejeongFlip-<버전>.zip (설치 스크립트 포함)
+#         ./build.sh setup      → release/BaejeongFlip-<버전>-Setup.exe (설치 마법사, NSIS 필요)
 # 인증키를 함께 묶으려면 neis-key.txt(NEIS), kma-key.txt(기상청) 를 이 폴더에 두세요 (git 에는 올라가지 않음).
 #   zip   : 인증키가 zip 안에 들어감
-#   setup : 공개용과 함께 BaejeongFlip-1.0-학교용-Setup.exe 도 만듦
+#   setup : 공개용과 함께 BaejeongFlip-<버전>-학교용-Setup.exe 도 만듦
 set -euo pipefail
 cd "$(dirname "$0")"
 VER=$(sed -n 's/.*AssemblyInformationalVersion("\([^"]*\)").*/\1/p' src/BaejeongFlip.cs)
