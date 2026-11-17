@@ -17,16 +17,16 @@ using Microsoft.Win32;
 [assembly: AssemblyDescription("배정고등학교 플립시계 화면보호기")]
 [assembly: AssemblyProduct("배정플립")]
 [assembly: AssemblyCompany("배정고등학교 교육연구부")]
-[assembly: AssemblyVersion("1.5.1.0")]
-[assembly: AssemblyFileVersion("1.5.1.0")]
-[assembly: AssemblyInformationalVersion("1.5.1")]
+[assembly: AssemblyVersion("1.5.2.0")]
+[assembly: AssemblyFileVersion("1.5.2.0")]
+[assembly: AssemblyInformationalVersion("1.5.2")]
 
 namespace BaejeongFlip
 {
     // ───────────────────────── 설정 ─────────────────────────
     class Settings
     {
-        public const string AppName = "배정플립", Version = "1.5.1";
+        public const string AppName = "배정플립", Version = "1.5.2";
         const string Key = @"Software\BaejeongFlip";
         const string OldKey = @"Software\FlipClockSaver";     // 이름을 바꾸기 전(플립시계) 설정 위치
         public bool H24 = true, ShowSeconds = false, ShowDate = true;
