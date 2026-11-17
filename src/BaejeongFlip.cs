@@ -597,6 +597,8 @@ namespace BaejeongFlip
         // 기간 끝 날짜: 같은 달이면 일만 (예: 12/14(월)~17(목))
         static string MdEnd(DateTime s0, DateTime e0) { return s0.Month == e0.Month ? e0.Day + "(" + DowShort[(int)e0.DayOfWeek] + ")" : Md(e0); }
 
+        const double DinnerOnlyHour = 13.0;       // 이 시각부터 자정까지는 오늘 석식만 표시
+
         InfoView BuildInfoView()
         {
             var v = new InfoView();
@@ -665,11 +667,13 @@ namespace BaejeongFlip
 
             if (Cfg.ShowMeal && d.Meals != null && d.Meals.Count > 0)
             {
-                // 19시 전에는 오늘, 그 뒤(또는 오늘 급식이 없으면)는 다음 급식일의 점심·저녁을 번갈아 표시
+                // 시간대별 급식 표시
+                //  - 오늘 급식이 있으면: 13시 전에는 점심·저녁을 번갈아, 13시 이후에는 오늘 저녁만 (자정이 지나 날짜가 바뀌면 다시 점심·저녁)
+                //  - 오늘 급식이 없으면(주말·휴일): 다음 급식일의 점심·저녁을 번갈아
                 string todayS = today.ToString("yyyyMMdd");
                 double hour = shown.Hour + shown.Minute / 60.0;
                 string day = null;
-                if (hour < 19.0 && d.Meals.Exists(m => m.Date == todayS)) day = todayS;
+                if (d.Meals.Exists(m => m.Date == todayS)) day = todayS;
                 else foreach (var m in d.Meals) if (string.CompareOrdinal(m.Date, todayS) > 0) { day = m.Date; break; }
                 if (day != null)
                 {
@@ -678,9 +682,8 @@ namespace BaejeongFlip
                     var picks = d.Meals.FindAll(m => m.Date == day && (m.Kind == "중식" || m.Kind == "석식"));
                     if (picks.Count == 0) picks = d.Meals.FindAll(m => m.Date == day);
                     picks.Sort((a, b) => InfoService.KindOrder(a.Kind) - InfoService.KindOrder(b.Kind));
-                    // 오늘 점심시간이 지났으면 저녁부터 보여 줌
-                    if (md == today && hour >= 13.5 && picks.Count > 1 && picks[0].Kind == "중식") picks.Add(picks[0]); 
-                    if (md == today && hour >= 13.5 && picks.Count > 2) picks.RemoveAt(0);
+                    // 점심시간이 지난 오늘은 저녁만 (저녁이 없으면 급식 줄을 표시하지 않음)
+                    if (md == today && hour >= DinnerOnlyHour) picks = picks.FindAll(m => m.Kind == "석식");
                     foreach (var pk in picks)
                     {
                         string kind = pk.Kind == "중식" ? "점심" : pk.Kind == "석식" ? "저녁" : pk.Kind == "조식" ? "아침" : pk.Kind;
