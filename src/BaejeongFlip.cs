@@ -1222,8 +1222,6 @@ namespace BaejeongFlip
                 if (wOn && sOn) { swapping = true; SwapState(now, out sw, out prevSw, out st); }
                 bool schedOnTop = st < 0.5f ? prevSw : sw;
                 float flipY = st >= 1f ? 1f : (float)Math.Abs(Math.Cos(st * Math.PI));
-                float x0 = b.X + W * 0.04f;
-
                 foreach (var rk0 in rows)
                 {
                     char rk = rk0;
@@ -1480,18 +1478,12 @@ namespace BaejeongFlip
 
             float w = h * 0.7f;
             float cardGap = w * 0.06f, groupGap = w * 0.12f, colonW = h * 0.06f + w * 0.12f;
-            float dw = dh * 0.7f;
-            float dCardGap = dw * 0.05f, dUnitGap = dw * 0.35f, dLblGap = dw * 0.12f;
-            float lblH = dh * 0.24f;
-            float lblW = dh * 0.36f;
 
             int groups = Cfg.ShowSeconds ? 3 : 2;
             float groupW = 2 * w + cardGap;
             float ampmW = Cfg.H24 ? 0 : h * 0.16f + groupGap;
             float clockW = ampmW + groups * groupW + (groups - 1) * (colonW + 2 * groupGap);
 
-            float wordW = dh * 2.1f;
-            float dateW = (4 * dw + 3 * dCardGap) + (2 * dw + dCardGap) * 2 + 3 * (dLblGap + lblW) + 3 * dUnitGap + wordW;
             float dateGapV = h * 0.18f;
             float topBandH = topOn ? dh * 0.95f : 0f, topGap = topOn ? h * 0.16f : 0f;
 

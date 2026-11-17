@@ -145,7 +145,7 @@ Linux에서 빌드할 때는 Mono 자체 라이브러리가 아니라 반드시 
    - `public const string AppName = "배정플립", Version = "1.5.3";`
    - 버전은 `1.5.1`처럼 점으로 나눠 씁니다. 업데이트 버튼은 점으로 나뉜 숫자를 칸마다 비교하므로 `1.51`처럼 쓰면 `1.6`보다 높은 버전으로 인식됩니다.
    - 설치 파일(`installer/`)이나 문서만 바뀌었어도, 새 릴리스를 내려면 버전을 올려야 합니다. 같은 버전이면 아무것도 만들어지지 않습니다.
-2. `main`에 올리면 GitHub Actions(`.github/workflows/release.yml`)가 Windows에서 빌드하고, `v1.3` 같은 태그와 공개용 zip·설치 파일(Setup.exe)이 붙은 릴리스를 만듭니다.
+2. `main`에 올리면 GitHub Actions(`.github/workflows/release.yml`)가 Windows에서 빌드하고, `v1.5.3` 같은 태그와 공개용 zip·설치 파일(Setup.exe)이 붙은 릴리스를 만듭니다.
 3. 릴리스에는 업데이트 버튼이 받은 파일을 검증할 때 쓰는 `SHA256SUMS.txt`도 함께 붙습니다.
 4. 이미 같은 버전의 릴리스가 있으면 아무것도 하지 않습니다(설치 파일이 빠져 있으면 설치 파일만 만들어 붙입니다). Actions 탭에서 **릴리스** → **Run workflow**로 직접 실행할 수도 있습니다.
 
